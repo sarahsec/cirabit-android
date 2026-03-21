@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="https://github.com/user-attachments/assets/188c42f8-d249-4a72-b27a-e2b4f10a00a8" alt="Cirabit Android Logo" width="480">
+    <img src="https://www.smaia.dev/cirabit-logo.png" alt="Cirabit Android Logo" width="480">
 </p>
 
 > [!WARNING]
