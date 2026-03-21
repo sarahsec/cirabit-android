@@ -1,6 +1,7 @@
 package com.cirabit.android.security
 
 import android.content.Context
+import android.os.Build
 import androidx.biometric.BiometricManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,7 +35,21 @@ object AppLockPreferenceManager {
     fun isEnabled(): Boolean = _appLockEnabled.value
 
     fun authenticationStatus(context: Context): Int =
-        BiometricManager.from(context).canAuthenticate(AUTHENTICATORS)
+        BiometricManager.from(context).let { manager ->
+            val combinedStatus = manager.canAuthenticate(AUTHENTICATORS)
+            if (combinedStatus == BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED) {
+                manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+            } else {
+                combinedStatus
+            }
+        }
+
+    fun promptAuthenticators(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            AUTHENTICATORS
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_WEAK
+        }
 
     fun isAuthenticationAvailable(context: Context): Boolean =
         authenticationStatus(context) == BiometricManager.BIOMETRIC_SUCCESS

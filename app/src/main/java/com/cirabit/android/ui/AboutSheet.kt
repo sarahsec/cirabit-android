@@ -493,7 +493,7 @@ fun AboutSheet(
                                                 BiometricPrompt.PromptInfo.Builder()
                                                     .setTitle(context.getString(R.string.app_lock_change_prompt_title))
                                                     .setSubtitle(context.getString(subtitleRes))
-                                                    .setAllowedAuthenticators(AppLockPreferenceManager.AUTHENTICATORS)
+                                                    .setAllowedAuthenticators(AppLockPreferenceManager.promptAuthenticators())
                                                     .build()
                                             )
                                         },

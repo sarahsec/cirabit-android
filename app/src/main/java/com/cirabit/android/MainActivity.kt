@@ -969,7 +969,7 @@ class MainActivity : OrientationAwareActivity() {
                 BiometricPrompt.PromptInfo.Builder()
                     .setTitle(getString(R.string.app_lock_prompt_title))
                     .setSubtitle(getString(R.string.app_lock_prompt_subtitle))
-                    .setAllowedAuthenticators(AppLockPreferenceManager.AUTHENTICATORS)
+                    .setAllowedAuthenticators(AppLockPreferenceManager.promptAuthenticators())
                     .build()
             )
         }.onFailure { error ->
