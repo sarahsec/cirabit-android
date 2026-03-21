@@ -39,6 +39,7 @@ class CommandProcessorTest() {
   @Before
   fun setup() {
     commandProcessor = CommandProcessor(
+      context = context,
       state = chatState,
       messageManager = messageManager,
       channelManager = channelManager,
