@@ -79,6 +79,7 @@ class MainActivity : OrientationAwareActivity() {
     private var shouldRequireAppUnlock = false
     private var isAppUnlockInProgress = false
     private var isAppContentUnlocked by mutableStateOf(true)
+    private var isCoreInitialized = false
     private val appLockPrompt by lazy { createAppLockPrompt() }
     
     private val forceFinishReceiver = object : android.content.BroadcastReceiver() {
@@ -130,36 +131,10 @@ class MainActivity : OrientationAwareActivity() {
         AppLockPreferenceManager.init(this)
         shouldRequireAppUnlock = AppLockPreferenceManager.isEnabled()
         isAppContentUnlocked = !shouldRequireAppUnlock
-        // Ensure foreground service is running and get mesh instance from holder
-        try { com.cirabit.android.service.MeshForegroundService.start(applicationContext) } catch (_: Exception) { }
-        meshService = com.cirabit.android.service.MeshServiceHolder.getOrCreate(applicationContext)
-        bluetoothStatusManager = BluetoothStatusManager(
-            activity = this,
-            context = this,
-            onBluetoothEnabled = ::handleBluetoothEnabled,
-            onBluetoothDisabled = ::handleBluetoothDisabled
-        )
-        locationStatusManager = LocationStatusManager(
-            activity = this,
-            context = this,
-            onLocationEnabled = ::handleLocationEnabled,
-            onLocationDisabled = ::handleLocationDisabled
-        )
-        batteryOptimizationManager = BatteryOptimizationManager(
-            activity = this,
-            context = this,
-            onBatteryOptimizationDisabled = ::handleBatteryOptimizationDisabled,
-            onBatteryOptimizationFailed = ::handleBatteryOptimizationFailed
-        )
-        onboardingCoordinator = OnboardingCoordinator(
-            activity = this,
-            permissionManager = permissionManager,
-            onOnboardingComplete = ::handleOnboardingComplete,
-            onBackgroundLocationRequired = {
-                mainViewModel.updateOnboardingState(OnboardingState.BACKGROUND_LOCATION_EXPLANATION)
-            },
-            onOnboardingFailed = ::handleOnboardingFailed
-        )
+
+        // Must happen in onCreate: onboarding managers register ActivityResult launchers.
+        // Registering after STARTED/RESUMED crashes with IllegalStateException.
+        ensureCoreInitializedSafely()
         
         setContent {
             CirabitTheme {
@@ -193,11 +168,6 @@ class MainActivity : OrientationAwareActivity() {
             }
         }
         
-        // Only start onboarding process if we're in the initial CHECKING state
-        // This prevents restarting onboarding on configuration changes
-        if (mainViewModel.onboardingState.value == OnboardingState.CHECKING) {
-            checkOnboardingStatus()
-        }
     }
     
     @Composable
@@ -228,6 +198,59 @@ class MainActivity : OrientationAwareActivity() {
                     Text(text = stringResource(R.string.app_lock_retry_button))
                 }
             }
+        }
+    }
+
+    private fun initializeCoreComponentsIfNeeded() {
+        if (isCoreInitialized) return
+
+        // Ensure foreground service is running and get mesh instance from holder
+        try { com.cirabit.android.service.MeshForegroundService.start(applicationContext) } catch (_: Exception) { }
+        meshService = com.cirabit.android.service.MeshServiceHolder.getOrCreate(applicationContext)
+        bluetoothStatusManager = BluetoothStatusManager(
+            activity = this,
+            context = this,
+            onBluetoothEnabled = ::handleBluetoothEnabled,
+            onBluetoothDisabled = ::handleBluetoothDisabled
+        )
+        locationStatusManager = LocationStatusManager(
+            activity = this,
+            context = this,
+            onLocationEnabled = ::handleLocationEnabled,
+            onLocationDisabled = ::handleLocationDisabled
+        )
+        batteryOptimizationManager = BatteryOptimizationManager(
+            activity = this,
+            context = this,
+            onBatteryOptimizationDisabled = ::handleBatteryOptimizationDisabled,
+            onBatteryOptimizationFailed = ::handleBatteryOptimizationFailed
+        )
+        onboardingCoordinator = OnboardingCoordinator(
+            activity = this,
+            permissionManager = permissionManager,
+            onOnboardingComplete = ::handleOnboardingComplete,
+            onBackgroundLocationRequired = {
+                mainViewModel.updateOnboardingState(OnboardingState.BACKGROUND_LOCATION_EXPLANATION)
+            },
+            onOnboardingFailed = ::handleOnboardingFailed
+        )
+        isCoreInitialized = true
+
+        // Only start onboarding process if we're in the initial CHECKING state
+        // This prevents restarting onboarding on configuration changes
+        if (mainViewModel.onboardingState.value == OnboardingState.CHECKING) {
+            checkOnboardingStatus()
+        }
+    }
+
+    private fun ensureCoreInitializedSafely(): Boolean {
+        if (isCoreInitialized) return true
+        return runCatching {
+            initializeCoreComponentsIfNeeded()
+            true
+        }.getOrElse { error ->
+            Log.e("MainActivity", "Failed to initialize core components", error)
+            false
         }
     }
 
@@ -769,7 +792,7 @@ class MainActivity : OrientationAwareActivity() {
         com.cirabit.android.service.AppShutdownCoordinator.cancelPendingShutdown()
         
         // Handle notification intents when app is already running
-        if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
+        if (isCoreInitialized && mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
             handleNotificationIntent(intent)
             handleVerificationIntent(intent)
         }
@@ -782,16 +805,28 @@ class MainActivity : OrientationAwareActivity() {
             if (shouldRequireAppUnlock || isAppUnlockInProgress) return
         }
 
+        if (!ensureCoreInitializedSafely()) return
+
         // Check Bluetooth and Location status on resume and handle accordingly
         if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
-            handlePostUnlockResumeChecks()
+            runCatching { handlePostUnlockResumeChecks() }
+                .onFailure { error ->
+                    Log.e("MainActivity", "Post-unlock resume checks failed", error)
+                }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && shouldRequireAppUnlock && !isAppUnlockInProgress) {
+            maybeAuthenticateAppLock()
         }
     }
     
     override fun onPause() {
         super.onPause()
         // Only set background state if app is fully initialized
-        if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
+        if (isCoreInitialized && mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
             // Detach UI delegate so the foreground service can own DM notifications while UI is closed
             try { meshService.delegate = null } catch (_: Exception) { }
 
@@ -807,6 +842,8 @@ class MainActivity : OrientationAwareActivity() {
     }
 
     private fun handlePostUnlockResumeChecks() {
+        if (!isCoreInitialized) return
+
         // Reattach mesh delegate to new ChatViewModel instance after Activity recreation
         try { meshService.delegate = chatViewModel } catch (_: Exception) { }
 
@@ -838,12 +875,20 @@ class MainActivity : OrientationAwareActivity() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     isAppUnlockInProgress = false
+                    if (!ensureCoreInitializedSafely()) {
+                        shouldRequireAppUnlock = true
+                        isAppContentUnlocked = false
+                        return
+                    }
                     shouldRequireAppUnlock = false
                     isAppContentUnlocked = true
                     Log.d("MainActivity", "App lock authentication succeeded")
 
                     if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
-                        handlePostUnlockResumeChecks()
+                        runCatching { handlePostUnlockResumeChecks() }
+                            .onFailure { error ->
+                                Log.e("MainActivity", "Post-auth checks failed", error)
+                            }
                     }
                 }
 
@@ -867,7 +912,8 @@ class MainActivity : OrientationAwareActivity() {
         )
 
     private fun maybeAuthenticateAppLock() {
-        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        if (isFinishing || isDestroyed) return
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
         if (isAppUnlockInProgress || !shouldRequireAppUnlock) return
         if (!AppLockPreferenceManager.isEnabled()) {
             shouldRequireAppUnlock = false
@@ -889,13 +935,20 @@ class MainActivity : OrientationAwareActivity() {
 
         isAppContentUnlocked = false
         isAppUnlockInProgress = true
-        appLockPrompt.authenticate(
-            BiometricPrompt.PromptInfo.Builder()
-                .setTitle(getString(R.string.app_lock_prompt_title))
-                .setSubtitle(getString(R.string.app_lock_prompt_subtitle))
-                .setAllowedAuthenticators(AppLockPreferenceManager.AUTHENTICATORS)
-                .build()
-        )
+        runCatching {
+            appLockPrompt.authenticate(
+                BiometricPrompt.PromptInfo.Builder()
+                    .setTitle(getString(R.string.app_lock_prompt_title))
+                    .setSubtitle(getString(R.string.app_lock_prompt_subtitle))
+                    .setAllowedAuthenticators(AppLockPreferenceManager.AUTHENTICATORS)
+                    .build()
+            )
+        }.onFailure { error ->
+            isAppUnlockInProgress = false
+            shouldRequireAppUnlock = true
+            isAppContentUnlocked = false
+            Log.e("MainActivity", "Failed to launch app lock prompt", error)
+        }
     }
     
     /**
@@ -976,11 +1029,13 @@ class MainActivity : OrientationAwareActivity() {
         try { unregisterReceiver(forceFinishReceiver) } catch (_: Exception) { }
         
         // Cleanup location status manager
-        try {
-            locationStatusManager.cleanup()
-            Log.d("MainActivity", "Location status manager cleaned up successfully")
-        } catch (e: Exception) {
-            Log.w("MainActivity", "Error cleaning up location status manager: ${e.message}")
+        if (isCoreInitialized) {
+            try {
+                locationStatusManager.cleanup()
+                Log.d("MainActivity", "Location status manager cleaned up successfully")
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Error cleaning up location status manager: ${e.message}")
+            }
         }
         
         // Do not stop mesh here; ForegroundService owns lifecycle for background reliability

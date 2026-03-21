@@ -138,6 +138,9 @@
     <string name="about_app_lock_unavailable_desc">Biometria ou credenciais do dispositivo indisponíveis neste aparelho.</string>
     <string name="app_lock_prompt_title">desbloquear cirabit</string>
     <string name="app_lock_prompt_subtitle">autentique-se para continuar</string>
+    <string name="app_lock_change_prompt_title">confirmar alteração do bloqueio</string>
+    <string name="app_lock_change_prompt_enable_subtitle">autentique-se para ativar o bloqueio do app</string>
+    <string name="app_lock_change_prompt_disable_subtitle">autentique-se para desativar o bloqueio do app</string>
     <string name="app_lock_gate_message">o cirabit está bloqueado.</string>
     <string name="app_lock_retry_button">tentar novamente</string>
 

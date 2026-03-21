@@ -1,5 +1,7 @@
 package com.cirabit.android.ui
 
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -17,6 +19,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,6 +30,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import com.cirabit.android.nostr.NostrProofOfWork
 import com.cirabit.android.nostr.PoWPreferenceManager
 import androidx.compose.ui.res.stringResource
@@ -37,6 +42,12 @@ import com.cirabit.android.net.TorMode
 import com.cirabit.android.net.TorPreferenceManager
 import com.cirabit.android.net.ArtiTorManager
 import com.cirabit.android.security.AppLockPreferenceManager
+
+private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.findFragmentActivity()
+    else -> null
+}
 
 /**
  * Feature row for displaying app capabilities
@@ -374,6 +385,33 @@ fun AboutSheet(
                         val appLockEnabled by AppLockPreferenceManager.appLockEnabled.collectAsState()
                         val appLockStatus = AppLockPreferenceManager.authenticationStatus(context)
                         val appLockAvailable = appLockStatus == BiometricManager.BIOMETRIC_SUCCESS
+                        val hostActivity = remember(context) { context.findFragmentActivity() }
+                        var appLockToggleInProgress by remember { mutableStateOf(false) }
+                        var pendingAppLockValue by remember { mutableStateOf<Boolean?>(null) }
+                        val appLockChangePrompt = remember(hostActivity, context) {
+                            hostActivity?.let { activity ->
+                                BiometricPrompt(
+                                    activity,
+                                    ContextCompat.getMainExecutor(activity),
+                                    object : BiometricPrompt.AuthenticationCallback() {
+                                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                                            super.onAuthenticationSucceeded(result)
+                                            pendingAppLockValue?.let { desiredValue ->
+                                                AppLockPreferenceManager.setEnabled(context, desiredValue)
+                                            }
+                                            pendingAppLockValue = null
+                                            appLockToggleInProgress = false
+                                        }
+
+                                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                                            super.onAuthenticationError(errorCode, errString)
+                                            pendingAppLockValue = null
+                                            appLockToggleInProgress = false
+                                        }
+                                    }
+                                )
+                            }
+                        }
                         val appLockSubtitle = when (appLockStatus) {
                             BiometricManager.BIOMETRIC_SUCCESS -> stringResource(R.string.about_app_lock_desc)
                             BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> stringResource(R.string.about_app_lock_setup_desc)
@@ -436,11 +474,30 @@ fun AboutSheet(
                                         subtitle = appLockSubtitle,
                                         checked = appLockEnabled,
                                         onCheckedChange = { enabled ->
-                                            if (!enabled || appLockAvailable) {
+                                            if (!appLockAvailable || appLockToggleInProgress) return@SettingsToggleRow
+
+                                            // Require device authentication to change app lock setting.
+                                            if (appLockChangePrompt == null) {
                                                 AppLockPreferenceManager.setEnabled(context, enabled)
+                                                return@SettingsToggleRow
                                             }
+
+                                            pendingAppLockValue = enabled
+                                            appLockToggleInProgress = true
+                                            val subtitleRes = if (enabled) {
+                                                R.string.app_lock_change_prompt_enable_subtitle
+                                            } else {
+                                                R.string.app_lock_change_prompt_disable_subtitle
+                                            }
+                                            appLockChangePrompt.authenticate(
+                                                BiometricPrompt.PromptInfo.Builder()
+                                                    .setTitle(context.getString(R.string.app_lock_change_prompt_title))
+                                                    .setSubtitle(context.getString(subtitleRes))
+                                                    .setAllowedAuthenticators(AppLockPreferenceManager.AUTHENTICATORS)
+                                                    .build()
+                                            )
                                         },
-                                        enabled = appLockAvailable
+                                        enabled = appLockAvailable && !appLockToggleInProgress
                                     )
 
                                     HorizontalDivider(
