@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.biometric.BiometricManager
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +36,7 @@ import com.cirabit.android.core.ui.component.sheet.CirabitBottomSheet
 import com.cirabit.android.net.TorMode
 import com.cirabit.android.net.TorPreferenceManager
 import com.cirabit.android.net.ArtiTorManager
+import com.cirabit.android.security.AppLockPreferenceManager
 
 /**
  * Feature row for displaying app capabilities
@@ -365,7 +367,18 @@ fun AboutSheet(
 
                     // Settings Section - Unified Card with Toggles
                     item(key = "settings") {
-                        LaunchedEffect(Unit) { PoWPreferenceManager.init(context) }
+                        LaunchedEffect(Unit) {
+                            PoWPreferenceManager.init(context)
+                            AppLockPreferenceManager.init(context)
+                        }
+                        val appLockEnabled by AppLockPreferenceManager.appLockEnabled.collectAsState()
+                        val appLockStatus = AppLockPreferenceManager.authenticationStatus(context)
+                        val appLockAvailable = appLockStatus == BiometricManager.BIOMETRIC_SUCCESS
+                        val appLockSubtitle = when (appLockStatus) {
+                            BiometricManager.BIOMETRIC_SUCCESS -> stringResource(R.string.about_app_lock_desc)
+                            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> stringResource(R.string.about_app_lock_setup_desc)
+                            else -> stringResource(R.string.about_app_lock_unavailable_desc)
+                        }
                         val powEnabled by PoWPreferenceManager.powEnabled.collectAsState()
                         val powDifficulty by PoWPreferenceManager.powDifficulty.collectAsState()
                         var backgroundEnabled by remember { mutableStateOf(com.cirabit.android.service.MeshServicePreferences.isBackgroundEnabled(true)) }
@@ -373,6 +386,12 @@ fun AboutSheet(
                         val torProvider = remember { ArtiTorManager.getInstance() }
                         val torStatus by torProvider.statusFlow.collectAsState()
                         val torAvailable = remember { torProvider.isTorAvailable() }
+
+                        LaunchedEffect(appLockAvailable, appLockEnabled) {
+                            if (!appLockAvailable && appLockEnabled) {
+                                AppLockPreferenceManager.setEnabled(context, false)
+                            }
+                        }
 
                         Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                             Text(
@@ -405,6 +424,25 @@ fun AboutSheet(
                                         }
                                     )
                                     
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+
+                                    // App Lock Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Lock,
+                                        title = stringResource(R.string.about_app_lock_title),
+                                        subtitle = appLockSubtitle,
+                                        checked = appLockEnabled,
+                                        onCheckedChange = { enabled ->
+                                            if (!enabled || appLockAvailable) {
+                                                AppLockPreferenceManager.setEnabled(context, enabled)
+                                            }
+                                        },
+                                        enabled = appLockAvailable
+                                    )
+
                                     HorizontalDivider(
                                         modifier = Modifier.padding(start = 56.dp),
                                         color = colorScheme.outline.copy(alpha = 0.12f)

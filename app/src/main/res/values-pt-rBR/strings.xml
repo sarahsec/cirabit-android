@@ -132,6 +132,12 @@
     <string name="about_footer">Código aberto • Privacidade em primeiro lugar • Descentralizado</string>
     <string name="close_plain">Fechar</string>
     <string name="cancel_lower">cancelar</string>
+    <string name="about_app_lock_title">bloqueio do app</string>
+    <string name="about_app_lock_desc">Exigir biometria ou bloqueio de tela ao reabrir o cirabit.</string>
+    <string name="about_app_lock_setup_desc">Configure biometria ou bloqueio de tela nas configurações do Android para ativar o bloqueio do app.</string>
+    <string name="about_app_lock_unavailable_desc">Biometria ou credenciais do dispositivo indisponíveis neste aparelho.</string>
+    <string name="app_lock_prompt_title">desbloquear cirabit</string>
+    <string name="app_lock_prompt_subtitle">autentique-se para continuar</string>
 
     <!-- Descrições de conteúdo -->
     <string name="cd_warning">Aviso</string>

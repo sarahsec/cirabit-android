@@ -2,14 +2,14 @@ package com.cirabit.android.ui
 
 import android.content.pm.ActivityInfo
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import com.cirabit.android.utils.DeviceUtils
 
 /**
  * Base activity that automatically sets orientation based on device type.
  * Tablets can rotate to landscape, phones are locked to portrait.
  */
-abstract class OrientationAwareActivity : ComponentActivity() {
+abstract class OrientationAwareActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

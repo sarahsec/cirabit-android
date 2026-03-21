@@ -141,6 +141,7 @@ dependencies {
 
     // Security preferences
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.biometric)
     
     // EXIF orientation handling for images
     implementation("androidx.exifinterface:exifinterface:1.3.7")

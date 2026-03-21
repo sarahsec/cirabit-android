@@ -2,6 +2,7 @@ package com.cirabit.android
 
 import android.app.Application
 import com.cirabit.android.nostr.RelayDirectory
+import com.cirabit.android.security.AppLockPreferenceManager
 import com.cirabit.android.ui.theme.ThemePreferenceManager
 import com.cirabit.android.net.ArtiTorManager
 
@@ -37,6 +38,7 @@ class CirabitApplication : Application() {
 
         // Initialize theme preference
         ThemePreferenceManager.init(this)
+        AppLockPreferenceManager.init(this)
 
         // Initialize debug preference manager (persists debug toggles)
         try { com.cirabit.android.ui.debug.DebugPreferenceManager.init(this) } catch (_: Exception) { }

@@ -7,6 +7,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +16,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.repeatOnLifecycle
@@ -36,6 +39,7 @@ import com.cirabit.android.onboarding.OnboardingCoordinator
 import com.cirabit.android.onboarding.OnboardingState
 import com.cirabit.android.onboarding.PermissionExplanationScreen
 import com.cirabit.android.onboarding.PermissionManager
+import com.cirabit.android.security.AppLockPreferenceManager
 import com.cirabit.android.ui.ChatScreen
 import com.cirabit.android.ui.ChatViewModel
 import com.cirabit.android.ui.OrientationAwareActivity
@@ -64,6 +68,9 @@ class MainActivity : OrientationAwareActivity() {
             }
         }
     }
+    private var shouldRequireAppUnlock = false
+    private var isAppUnlockInProgress = false
+    private val appLockPrompt by lazy { createAppLockPrompt() }
     
     private val forceFinishReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
@@ -111,6 +118,8 @@ class MainActivity : OrientationAwareActivity() {
 
         // Initialize permission management
         permissionManager = PermissionManager(this)
+        AppLockPreferenceManager.init(this)
+        shouldRequireAppUnlock = AppLockPreferenceManager.isEnabled()
         // Ensure foreground service is running and get mesh instance from holder
         try { com.cirabit.android.service.MeshForegroundService.start(applicationContext) } catch (_: Exception) { }
         meshService = com.cirabit.android.service.MeshServiceHolder.getOrCreate(applicationContext)
@@ -329,6 +338,7 @@ class MainActivity : OrientationAwareActivity() {
             OnboardingState.COMPLETE -> {
                 // App is fully initialized, mesh service is running
                 android.util.Log.d("MainActivity", "Onboarding completed - app ready")
+                maybeAuthenticateAppLock()
             }
             OnboardingState.ERROR -> {
                 android.util.Log.e("MainActivity", "Onboarding error state reached")
@@ -739,7 +749,10 @@ class MainActivity : OrientationAwareActivity() {
                 mainViewModel.updateLocationStatus(currentLocationStatus)
                 mainViewModel.updateOnboardingState(OnboardingState.LOCATION_CHECK)
                 mainViewModel.updateLocationLoading(false)
+                return
             }
+
+            maybeAuthenticateAppLock()
         }
     }
     
@@ -749,7 +762,74 @@ class MainActivity : OrientationAwareActivity() {
         if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
             // Detach UI delegate so the foreground service can own DM notifications while UI is closed
             try { meshService.delegate = null } catch (_: Exception) { }
+
+            if (
+                !isChangingConfigurations &&
+                AppLockPreferenceManager.isEnabled() &&
+                !isAppUnlockInProgress
+            ) {
+                shouldRequireAppUnlock = true
+            }
         }
+    }
+
+    private fun createAppLockPrompt(): BiometricPrompt =
+        BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    isAppUnlockInProgress = false
+                    shouldRequireAppUnlock = false
+                    Log.d("MainActivity", "App lock authentication succeeded")
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                    Log.w("MainActivity", "App lock authentication failed")
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    isAppUnlockInProgress = false
+                    shouldRequireAppUnlock = true
+                    Log.w("MainActivity", "App lock authentication error ($errorCode): $errString")
+
+                    if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
+                        moveTaskToBack(true)
+                    }
+                }
+            }
+        )
+
+    private fun maybeAuthenticateAppLock() {
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        if (isAppUnlockInProgress || !shouldRequireAppUnlock) return
+        if (!AppLockPreferenceManager.isEnabled()) {
+            shouldRequireAppUnlock = false
+            return
+        }
+
+        val authStatus = AppLockPreferenceManager.authenticationStatus(this)
+        if (authStatus != BiometricManager.BIOMETRIC_SUCCESS) {
+            Log.w(
+                "MainActivity",
+                "App lock enabled but unavailable (status=$authStatus), disabling preference"
+            )
+            AppLockPreferenceManager.setEnabled(this, false)
+            shouldRequireAppUnlock = false
+            return
+        }
+
+        isAppUnlockInProgress = true
+        appLockPrompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle(getString(R.string.app_lock_prompt_title))
+                .setSubtitle(getString(R.string.app_lock_prompt_subtitle))
+                .setAllowedAuthenticators(AppLockPreferenceManager.AUTHENTICATORS)
+                .build()
+        )
     }
     
     /**

@@ -141,6 +141,12 @@
   <string name="close_plain">Close</string>
   <string name="cd_privacy_protected">Privacy Protected</string>
   <string name="cancel_lower">cancel</string>
+  <string name="about_app_lock_title">app lock</string>
+  <string name="about_app_lock_desc">require biometrics or screen lock when reopening cirabit.</string>
+  <string name="about_app_lock_setup_desc">set up biometrics or device screen lock in Android settings to enable app lock.</string>
+  <string name="about_app_lock_unavailable_desc">biometrics or device credentials are unavailable on this device.</string>
+  <string name="app_lock_prompt_title">unlock cirabit</string>
+  <string name="app_lock_prompt_subtitle">authenticate to continue</string>
 
   <!-- Generic content descriptions -->
   <string name="cd_warning">Warning</string>
