@@ -1,0 +1,12 @@
+### Added
+- Automatic app version checks every 12 hours.
+- A one-time update available dialog per release.
+- Update check toggle and status in About settings.
+
+### Changed
+- Tapping update settings now opens the official download page:
+  https://cirabit.smaia.dev/download
+
+### Fixed
+- Improved update-check reliability with fallback endpoint support.
+- Prevented false update-check errors when UI coroutines are cancelled.
