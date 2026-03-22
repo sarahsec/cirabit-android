@@ -13,15 +13,17 @@ Cirabit is currently available as an **Android-only** app.
 
 ## Install Cirabit
 
-You can download the latest version of Cirabit for Android from the [releases page](https://github.com/sarahsec/cirabit-android/releases).
+Cirabit for Android is currently distributed through:
 
-Or you can:
+- **Official website (recommended):** https://cirabit.smaia.dev/download
+- **GitHub releases:** https://github.com/sarahsec/cirabit-android/releases
 
-[<img alt="Get it on Google Play" height="60" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png"/>](https://play.google.com/store/apps/details?id=com.cirabit.droid)
+> [!IMPORTANT]
+> Cirabit is **not published on Google Play yet**.
 
 **Instructions:**
 
-1.  **Download the APK:** On your Android device, navigate to the link above and download the latest `.apk` file. Open it.
+1.  **Download the APK:** On your Android device, open one of the links above and download the latest `.apk` file.
 2.  **Allow Unknown Sources:** On some devices, before you can install the APK, you may need to enable "Install from unknown sources" in your device's settings. This is typically found under **Settings > Security** or **Settings > Apps & notifications > Special app access**.
 3.  **Install:** Open the downloaded `.apk` file to begin the installation.
 
@@ -246,7 +248,7 @@ The Android implementation follows the Cirabit binary protocol:
 - **UUIDs**: Same Bluetooth service and characteristic identifiers
 - **Fragmentation**: Compatible message fragmentation for large content
 
-## Publishing to Google Play
+## Release and Distribution
 
 ### Preparation
 
@@ -264,12 +266,12 @@ The Android implementation follows the Cirabit binary protocol:
    ./gradlew assembleRelease
    ```
 
-3. **Generate app bundle (recommended for Play Store):**
+3. **Generate app bundle (optional, for future store distribution):**
    ```bash
    ./gradlew bundleRelease
    ```
 
-### Play Store Requirements
+### Store Distribution (Future)
 
 - **Target API**: Latest Android API (currently 34)
 - **Privacy Policy**: Required for apps requesting sensitive permissions
@@ -278,9 +280,10 @@ The Android implementation follows the Cirabit binary protocol:
 
 ### Distribution
 
-- **Google Play Store**: Main distribution channel
-- **F-Droid**: For open-source distribution
-- **Direct APK**: For testing and development
+- **Official website**: https://cirabit.smaia.dev/download (current primary channel)
+- **GitHub releases**: https://github.com/sarahsec/cirabit-android/releases (current channel)
+- **Google Play Store**: planned
+- **F-Droid**: planned
 
 ## Platform Support
 
