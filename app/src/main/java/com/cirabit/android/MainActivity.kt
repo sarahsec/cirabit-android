@@ -1,6 +1,7 @@
 package com.cirabit.android
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -18,9 +19,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +59,8 @@ import com.cirabit.android.ui.ChatScreen
 import com.cirabit.android.ui.ChatViewModel
 import com.cirabit.android.ui.OrientationAwareActivity
 import com.cirabit.android.ui.theme.CirabitTheme
+import com.cirabit.android.update.AppUpdateCheckService
+import com.cirabit.android.update.AppUpdatePreferenceManager
 import com.cirabit.android.nostr.PoWPreferenceManager
 import com.cirabit.android.services.VerificationService
 import kotlinx.coroutines.delay
@@ -86,6 +91,8 @@ class MainActivity : OrientationAwareActivity() {
     private var appLockPromptSucceeded = false
     private var suppressRelockUntilElapsedRealtimeMs = 0L
     private var isCoreInitialized = false
+    private var showUpdateAvailableDialog by mutableStateOf(false)
+    private var pendingUpdateVersion by mutableStateOf<String?>(null)
     private val appLockPrompt by lazy { createAppLockPrompt() }
     
     private val forceFinishReceiver = object : android.content.BroadcastReceiver() {
@@ -135,6 +142,7 @@ class MainActivity : OrientationAwareActivity() {
         // Initialize permission management
         permissionManager = PermissionManager(this)
         AppLockPreferenceManager.init(this)
+        AppUpdatePreferenceManager.init(this)
         shouldRequireAppUnlock = AppLockPreferenceManager.isEnabled()
         isAppContentUnlocked = !shouldRequireAppUnlock
 
@@ -162,6 +170,10 @@ class MainActivity : OrientationAwareActivity() {
                         )
                     }
                 }
+
+                if (showUpdateAvailableDialog && isAppContentUnlocked) {
+                    UpdateAvailableDialog()
+                }
             }
         }
         
@@ -170,6 +182,29 @@ class MainActivity : OrientationAwareActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 mainViewModel.onboardingState.collect { state ->
                     handleOnboardingStateChange(state)
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                AppUpdatePreferenceManager.updateInfo.collect { updateInfo ->
+                    if (!isAppContentUnlocked) return@collect
+                    if (mainViewModel.onboardingState.value != OnboardingState.COMPLETE) return@collect
+
+                    val shouldShowPrompt = AppUpdatePreferenceManager.shouldShowUpdatePrompt(
+                        context = this@MainActivity,
+                        info = updateInfo
+                    )
+                    if (!shouldShowPrompt) return@collect
+
+                    pendingUpdateVersion = updateInfo.latestVersion
+                    showUpdateAvailableDialog = true
+                    AppUpdatePreferenceManager.markUpdatePromptShown(
+                        context = this@MainActivity,
+                        latestVersion = updateInfo.latestVersion,
+                        releaseUrl = updateInfo.releaseUrl
+                    )
                 }
             }
         }
@@ -209,6 +244,49 @@ class MainActivity : OrientationAwareActivity() {
                     Text(text = stringResource(R.string.app_lock_retry_button))
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun UpdateAvailableDialog() {
+        val version = pendingUpdateVersion
+        AlertDialog(
+            onDismissRequest = { showUpdateAvailableDialog = false },
+            title = { Text(text = stringResource(R.string.update_available_dialog_title)) },
+            text = {
+                Text(
+                    text = if (!version.isNullOrBlank()) {
+                        stringResource(R.string.update_available_dialog_message_with_version, version)
+                    } else {
+                        stringResource(R.string.update_available_dialog_message)
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUpdateAvailableDialog = false
+                        openLatestReleasePage()
+                    }
+                ) {
+                    Text(text = stringResource(R.string.update_available_dialog_download))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateAvailableDialog = false }) {
+                    Text(text = stringResource(R.string.update_available_dialog_later))
+                }
+            }
+        )
+    }
+
+    private fun openLatestReleasePage() {
+        val targetUrl = AppUpdateCheckService.DOWNLOAD_PAGE_URL
+
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)))
+        }.onFailure { error ->
+            Log.w("MainActivity", "Failed to open release page: $targetUrl", error)
         }
     }
 
@@ -822,6 +900,13 @@ class MainActivity : OrientationAwareActivity() {
         }
 
         if (!ensureCoreInitializedSafely()) return
+
+        lifecycleScope.launch {
+            runCatching { AppUpdateCheckService.checkForUpdatesIfNeeded(this@MainActivity) }
+                .onFailure { error ->
+                    Log.w("MainActivity", "Automatic app update check failed", error)
+                }
+        }
 
         // Check Bluetooth and Location status on resume and handle accordingly
         if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {

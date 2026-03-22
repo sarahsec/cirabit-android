@@ -1,9 +1,12 @@
 package com.cirabit.android.ui
 
 import android.content.Context
+import android.content.Intent
 import android.content.ContextWrapper
+import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -11,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Warning
@@ -42,6 +46,9 @@ import com.cirabit.android.net.TorMode
 import com.cirabit.android.net.TorPreferenceManager
 import com.cirabit.android.net.ArtiTorManager
 import com.cirabit.android.security.AppLockPreferenceManager
+import com.cirabit.android.update.AppUpdateCheckService
+import com.cirabit.android.update.AppUpdatePreferenceManager
+import kotlinx.coroutines.launch
 
 private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
@@ -143,52 +150,65 @@ private fun SettingsToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
+    onContentClick: (() -> Unit)? = null,
     statusIndicator: (@Composable () -> Unit)? = null
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isDark = colorScheme.background.red + colorScheme.background.green + colorScheme.background.blue < 1.5f
-    
+
+    val contentClickModifier = if (enabled && onContentClick != null) {
+        Modifier.clickable(onClick = onContentClick)
+    } else {
+        Modifier
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (enabled) colorScheme.primary else colorScheme.onSurface.copy(alpha = 0.3f),
-            modifier = Modifier.size(22.dp)
-        )
-        
-        Spacer(modifier = Modifier.width(14.dp))
-        
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .then(contentClickModifier),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = if (enabled) colorScheme.onSurface else colorScheme.onSurface.copy(alpha = 0.4f)
-                )
-                statusIndicator?.invoke()
-            }
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = colorScheme.onSurface.copy(alpha = if (enabled) 0.6f else 0.3f),
-                lineHeight = 16.sp
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (enabled) colorScheme.primary else colorScheme.onSurface.copy(alpha = 0.3f),
+                modifier = Modifier.size(22.dp)
             )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = if (enabled) colorScheme.onSurface else colorScheme.onSurface.copy(alpha = 0.4f)
+                    )
+                    statusIndicator?.invoke()
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colorScheme.onSurface.copy(alpha = if (enabled) 0.6f else 0.3f),
+                    lineHeight = 16.sp
+                )
+            }
         }
-        
+
         Spacer(modifier = Modifier.width(16.dp))
-        
+
         Switch(
             checked = checked,
             onCheckedChange = { if (enabled) onCheckedChange(it) },
@@ -378,9 +398,11 @@ fun AboutSheet(
 
                     // Settings Section - Unified Card with Toggles
                     item(key = "settings") {
+                        val coroutineScope = rememberCoroutineScope()
                         LaunchedEffect(Unit) {
                             PoWPreferenceManager.init(context)
                             AppLockPreferenceManager.init(context)
+                            AppUpdatePreferenceManager.init(context)
                         }
                         val appLockEnabled by AppLockPreferenceManager.appLockEnabled.collectAsState()
                         val appLockStatus = AppLockPreferenceManager.authenticationStatus(context)
@@ -424,6 +446,29 @@ fun AboutSheet(
                         val torProvider = remember { ArtiTorManager.getInstance() }
                         val torStatus by torProvider.statusFlow.collectAsState()
                         val torAvailable = remember { torProvider.isTorAvailable() }
+                        val updateCheckEnabled by AppUpdatePreferenceManager.updateCheckEnabled.collectAsState()
+                        val updateCheckInfo by AppUpdatePreferenceManager.updateInfo.collectAsState()
+                        val isUpdateCheckRunning by AppUpdateCheckService.isChecking.collectAsState()
+                        val openLatestReleasePage: () -> Unit = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(AppUpdateCheckService.DOWNLOAD_PAGE_URL))
+                                )
+                            }
+                        }
+
+                        val updateCheckSubtitle = when {
+                            !updateCheckEnabled -> stringResource(R.string.about_update_check_desc_disabled)
+                            isUpdateCheckRunning -> stringResource(R.string.about_update_check_desc_checking)
+                            updateCheckInfo.updateAvailable && !updateCheckInfo.latestVersion.isNullOrBlank() -> stringResource(
+                                R.string.about_update_check_desc_update_available,
+                                updateCheckInfo.latestVersion ?: ""
+                            )
+                            updateCheckInfo.updateAvailable -> stringResource(R.string.about_update_check_desc_update_available_generic)
+                            !updateCheckInfo.lastError.isNullOrBlank() -> stringResource(R.string.about_update_check_desc_error)
+                            updateCheckInfo.lastCheckedAtMs > 0L -> stringResource(R.string.about_update_check_desc_latest)
+                            else -> stringResource(R.string.about_update_check_desc_waiting)
+                        }
 
                         LaunchedEffect(appLockAvailable, appLockEnabled) {
                             if (!appLockAvailable && appLockEnabled) {
@@ -462,6 +507,31 @@ fun AboutSheet(
                                         }
                                     )
                                     
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+
+                                    // Automatic Update Check Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Download,
+                                        title = stringResource(R.string.about_update_check_title),
+                                        subtitle = updateCheckSubtitle,
+                                        checked = updateCheckEnabled,
+                                        onContentClick = openLatestReleasePage,
+                                        onCheckedChange = { enabled ->
+                                            AppUpdatePreferenceManager.setEnabled(context, enabled)
+                                            if (enabled) {
+                                                coroutineScope.launch {
+                                                    AppUpdateCheckService.checkForUpdatesIfNeeded(
+                                                        context = context,
+                                                        force = true
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    )
+
                                     HorizontalDivider(
                                         modifier = Modifier.padding(start = 56.dp),
                                         color = colorScheme.outline.copy(alpha = 0.12f)
