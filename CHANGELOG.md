@@ -3,12 +3,27 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ### Added
 - Official app language configuration for:
   - English (United States) `en-US`
   - Portuguese (Brazil) `pt-BR`
+- App version update check backed by `https://cirabit.smaia.dev/api/latest-release`.
+- Update check controls and status visibility in About settings.
+- One-time "update available" prompt per release version.
+- Localized strings for update check and update prompt (EN/PT-BR).
+
+### Changed
+- Automatic update checks now run on app resume with a 12-hour interval.
+- Clicking the update-check row icon/text opens the official download page: `https://cirabit.smaia.dev/download`.
+- Update check now uses a dedicated HTTP client with higher timeouts and endpoint fallback for better reliability.
+- Update checks are fully skipped when the user disables the feature.
+
+### Fixed
+- Prevented false "could not verify updates" states caused by cancelled Compose coroutines.
 
 ## [1.4.0] - 2025-10-15
 ### Fixed
@@ -39,8 +54,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Use HorizontalDivider instead of deprecated Divider
 - Use contentPadding instead of padding so items remain fully visible
 
-
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.7]
 
