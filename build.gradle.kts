@@ -35,6 +35,11 @@ buildscript {
                     useVersion("4.1.118.Final")
                     because("Mitigate CVE-2025-24970 in AGP/UTP transitive dependencies")
                 }
+
+                requested.group == "org.bitbucket.b_c" && requested.name == "jose4j" -> {
+                    useVersion("0.9.6")
+                    because("Mitigate CVE-2024-29371 in AGP transitive dependency")
+                }
             }
         }
     }

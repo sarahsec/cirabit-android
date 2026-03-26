@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Overrode AGP transitive `org.jdom:jdom2` to `2.0.6.1` in buildscript classpath to mitigate CVE-2021-33813 (XXE/DoS in `SAXBuilder`).
 - Overrode AGP/UTP transitive protobuf artifacts to `3.25.5` (`protobuf-java`, `protobuf-javalite`, `protobuf-kotlin`, `protobuf-kotlin-lite`) to mitigate CVE-2024-7254 (unknown-field recursion DoS).
 - Overrode AGP/UTP transitive Netty artifacts to `4.1.118.Final` (`netty-handler` and related core modules) to mitigate CVE-2025-24970 (native crash via crafted TLS packet).
+- Overrode AGP transitive `org.bitbucket.b_c:jose4j` to `0.9.6` to mitigate CVE-2024-29371 (JWE decompression DoS).
 
 ## [1.4.0] - 2025-10-15
 ### Fixed
