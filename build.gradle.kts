@@ -17,6 +17,24 @@ buildscript {
                     useVersion("3.25.5")
                     because("Mitigate CVE-2024-7254 in AGP/UTP transitive dependencies")
                 }
+
+                requested.group == "io.netty" &&
+                    requested.name in setOf(
+                        "netty-buffer",
+                        "netty-codec",
+                        "netty-codec-http",
+                        "netty-codec-http2",
+                        "netty-codec-socks",
+                        "netty-common",
+                        "netty-handler",
+                        "netty-handler-proxy",
+                        "netty-resolver",
+                        "netty-transport",
+                        "netty-transport-native-unix-common",
+                    ) -> {
+                    useVersion("4.1.118.Final")
+                    because("Mitigate CVE-2025-24970 in AGP/UTP transitive dependencies")
+                }
             }
         }
     }
