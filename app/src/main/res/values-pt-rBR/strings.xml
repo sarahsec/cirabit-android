@@ -218,6 +218,8 @@
     <string name="action_hug_subtitle">Enviar um abraço amigável</string>
     <string name="action_block_title">Bloquear %1$s</string>
     <string name="action_block_subtitle">Bloquear todas as mensagens deste usuário</string>
+    <string name="action_private_message_title">Mensagem para %1$s</string>
+    <string name="action_private_message_subtitle">Enviar uma mensagem privada</string>
     <string name="command_desc_hug">Enviar um abraço quentinho para alguém</string>
     <string name="command_desc_slap">Dar um tapa de truta em alguém</string>
     <string name="command_action_hug_format">* %1$s dá um abraço quentinho em %2$s 🫂 *</string>

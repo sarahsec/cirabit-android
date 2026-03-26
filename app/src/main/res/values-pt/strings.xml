@@ -194,6 +194,8 @@
     <string name="action_hug_subtitle">Enviar um abraço amigável</string>
     <string name="action_block_title">Bloquear %1$s</string>
     <string name="action_block_subtitle">Bloquear todas as mensagens deste utilizador</string>
+    <string name="action_private_message_title">Mensagem para %1$s</string>
+    <string name="action_private_message_subtitle">Enviar uma mensagem privada</string>
 
     <!-- Folha de canais geohash -->
     <string name="location_channels_title">#Canais de localização</string>

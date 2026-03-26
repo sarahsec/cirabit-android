@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicking the update-check row icon/text opens the official download page: `https://cirabit.smaia.dev/download`.
 - Update check now uses a dedicated HTTP client with higher timeouts and endpoint fallback for better reliability.
 - Update checks are fully skipped when the user disables the feature.
+- Geohash heartbeat jitter now uses CSPRNG-backed randomness (`SecureRandom`) for less predictable broadcast timing.
+- Chat user action sheet now includes a direct "Message" action for starting private conversations without replacing existing actions.
 
 ### Fixed
 - Prevented false "could not verify updates" states caused by cancelled Compose coroutines.
@@ -40,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated app runtime Bouncy Castle provider from `org.bouncycastle:bcprov-jdk15on:1.70` to `org.bouncycastle:bcprov-jdk15to18:1.78.1` to address the RSA-handshake timing-leak advisory affecting pre-`1.78` releases.
 - Replaced implicit narrowing compound assignments in `Curve448` carry propagation with explicit casts to avoid lossy-conversion ambiguity (`java/implicit-cast-in-compound-assignment`).
 - Removed user-controlled channel names from `LocationChannelManager.select()` logs to prevent log injection (`java/log-injection`).
+- Hardened fragment reassembly against multi-set memory pressure by enforcing active-set/global-buffer caps and synchronized state transitions.
+- Added protocol decode guardrails for oversized payload declarations (`MAX_PAYLOAD_LENGTH`) before allocation.
+- Added geohash DM resolution helpers for nickname and short-id lookup (`startGeohashDMByNickname`, `startGeohashDMByShortId`, `findPubkeyByShortId`).
 
 ## [1.4.0] - 2025-10-15
 ### Fixed
