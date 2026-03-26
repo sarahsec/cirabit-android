@@ -17,7 +17,9 @@ import java.util.concurrent.ConcurrentHashMap
  * - Same reassembly logic and timeout handling
  * - Uses new FragmentPayload model for type safety
  */
-class FragmentManager {
+class FragmentManager(
+    private val maxIncomingBytes: Long = com.cirabit.android.util.AppConstants.Media.MAX_INCOMING_FILE_BYTES
+) {
     
     companion object {
         private const val TAG = "FragmentManager"
@@ -32,6 +34,8 @@ class FragmentManager {
     private val incomingFragments = ConcurrentHashMap<String, MutableMap<Int, ByteArray>>()
     // iOS equivalent: fragmentMetadata: [String: (type: UInt8, total: Int, timestamp: Date)]
     private val fragmentMetadata = ConcurrentHashMap<String, Triple<UByte, Int, Long>>() // originalType, totalFragments, timestamp
+    // Tracks accumulated payload bytes per fragment set to guard against oversized reassembly.
+    private val incomingFragmentBytes = ConcurrentHashMap<String, Long>()
     
     // Delegate for callbacks
     var delegate: FragmentManagerDelegate? = null
@@ -181,43 +185,91 @@ class FragmentManager {
                     fragmentPayload.total, 
                     System.currentTimeMillis()
                 )
+                incomingFragmentBytes[fragmentIDString] = 0L
+            }
+            
+            val fragmentMap = incomingFragments[fragmentIDString]
+            if (fragmentMap == null) {
+                Log.w(TAG, "Missing fragment map for $fragmentIDString")
+                return null
+            }
+            val previousFragmentSize = fragmentMap[fragmentPayload.index]?.size?.toLong() ?: 0L
+            val currentTotalBytes = incomingFragmentBytes[fragmentIDString] ?: 0L
+            val proposedTotalBytes = currentTotalBytes - previousFragmentSize + fragmentPayload.data.size.toLong()
+            if (proposedTotalBytes > maxIncomingBytes) {
+                Log.w(
+                    TAG,
+                    "Dropping oversized fragment set $fragmentIDString from ${packet.senderID.joinToString("") { "%02x".format(it) }.take(8)}..." +
+                            " total=$proposedTotalBytes limit=$maxIncomingBytes"
+                )
+                incomingFragments.remove(fragmentIDString)
+                fragmentMetadata.remove(fragmentIDString)
+                incomingFragmentBytes.remove(fragmentIDString)
+                return null
             }
             
             // iOS: incomingFragments[fragmentID]?[index] = Data(fragmentData)
-            incomingFragments[fragmentIDString]?.put(fragmentPayload.index, fragmentPayload.data)
+            fragmentMap[fragmentPayload.index] = fragmentPayload.data
+            incomingFragmentBytes[fragmentIDString] = proposedTotalBytes
             
             // iOS: if let fragments = incomingFragments[fragmentID], fragments.count == total
-            val fragmentMap = incomingFragments[fragmentIDString]
-            if (fragmentMap != null && fragmentMap.size == fragmentPayload.total) {
+            if (fragmentMap.size == fragmentPayload.total) {
                 Log.d(TAG, "All fragments received for $fragmentIDString, reassembling...")
-                
-                // iOS reassembly logic: for i in 0..<total { if let fragment = fragments[i] { reassembled.append(fragment) } }
-                val reassembledData = mutableListOf<Byte>()
-                for (i in 0 until fragmentPayload.total) {
-                    fragmentMap[i]?.let { data ->
-                        reassembledData.addAll(data.asIterable())
-                    }
+                val expectedSize = incomingFragmentBytes[fragmentIDString] ?: fragmentMap.values.sumOf { it.size.toLong() }
+                if (expectedSize > maxIncomingBytes) {
+                    Log.w(TAG, "Dropping oversized reassembly for $fragmentIDString total=$expectedSize limit=$maxIncomingBytes")
+                    incomingFragments.remove(fragmentIDString)
+                    fragmentMetadata.remove(fragmentIDString)
+                    incomingFragmentBytes.remove(fragmentIDString)
+                    return null
                 }
                 
+                val reassembledData = ByteArray(expectedSize.toInt())
+                var writeOffset = 0
+                for (i in 0 until fragmentPayload.total) {
+                    val data = fragmentMap[i]
+                    if (data == null) {
+                        Log.w(TAG, "Missing fragment index $i for $fragmentIDString during reassembly")
+                        incomingFragments.remove(fragmentIDString)
+                        fragmentMetadata.remove(fragmentIDString)
+                        incomingFragmentBytes.remove(fragmentIDString)
+                        return null
+                    }
+                    if (writeOffset + data.size > reassembledData.size) {
+                        Log.w(TAG, "Fragment overflow while reassembling $fragmentIDString")
+                        incomingFragments.remove(fragmentIDString)
+                        fragmentMetadata.remove(fragmentIDString)
+                        incomingFragmentBytes.remove(fragmentIDString)
+                        return null
+                    }
+                    System.arraycopy(data, 0, reassembledData, writeOffset, data.size)
+                    writeOffset += data.size
+                }
+                val completeData = if (writeOffset == reassembledData.size) reassembledData else reassembledData.copyOf(writeOffset)
+                
                 // Decode the original packet bytes we reassembled, so flags/compression are preserved - iOS fix
-                val originalPacket = CirabitPacket.fromBinaryData(reassembledData.toByteArray())
+                val originalPacket = CirabitPacket.fromBinaryData(completeData)
                 if (originalPacket != null) {
                     // iOS cleanup: incomingFragments.removeValue(forKey: fragmentID)
                     incomingFragments.remove(fragmentIDString)
                     fragmentMetadata.remove(fragmentIDString)
+                    incomingFragmentBytes.remove(fragmentIDString)
                     
                     // Suppress re-broadcast of the reassembled packet by zeroing TTL.
                     // We already relayed the incoming fragments; setting TTL=0 ensures
                     // PacketRelayManager will skip relaying this reconstructed packet.
                     val suppressedTtlPacket = originalPacket.copy(ttl = 0u.toUByte())
-                    Log.d(TAG, "Successfully reassembled original (${reassembledData.size} bytes); set TTL=0 to suppress relay")
+                    Log.d(TAG, "Successfully reassembled original (${completeData.size} bytes); set TTL=0 to suppress relay")
                     return suppressedTtlPacket
                 } else {
                     val metadata = fragmentMetadata[fragmentIDString]
                     Log.e(TAG, "Failed to decode reassembled packet (type=${metadata?.first}, total=${metadata?.second})")
+                    incomingFragments.remove(fragmentIDString)
+                    fragmentMetadata.remove(fragmentIDString)
+                    incomingFragmentBytes.remove(fragmentIDString)
                 }
             } else {
-                val received = fragmentMap?.size ?: 0
+                val received = fragmentMap.size
                 Log.d(TAG, "Fragment ${fragmentPayload.index} stored, have $received/${fragmentPayload.total} fragments for $fragmentIDString")
             }
             
@@ -257,6 +309,7 @@ class FragmentManager {
         for (fragmentID in oldFragments) {
             incomingFragments.remove(fragmentID)
             fragmentMetadata.remove(fragmentID)
+            incomingFragmentBytes.remove(fragmentID)
         }
         
         if (oldFragments.isNotEmpty()) {
@@ -301,6 +354,7 @@ class FragmentManager {
     fun clearAllFragments() {
         incomingFragments.clear()
         fragmentMetadata.clear()
+        incomingFragmentBytes.clear()
     }
     
     /**

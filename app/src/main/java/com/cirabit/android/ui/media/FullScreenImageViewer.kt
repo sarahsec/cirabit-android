@@ -13,23 +13,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.res.stringResource
@@ -58,6 +56,10 @@ fun FullScreenImageViewer(path: String, onClose: () -> Unit) {
 fun FullScreenImageViewer(imagePaths: List<String>, initialIndex: Int = 0, onClose: () -> Unit) {
     val context = LocalContext.current
     val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = imagePaths::size)
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val targetWidthPx = with(density) { configuration.screenWidthDp.dp.roundToPx().coerceAtLeast(1) }
+    val targetHeightPx = with(density) { configuration.screenHeightDp.dp.roundToPx().coerceAtLeast(1) }
 
     if (imagePaths.isEmpty()) {
         onClose()
@@ -72,7 +74,9 @@ fun FullScreenImageViewer(imagePaths: List<String>, initialIndex: Int = 0, onClo
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     val currentPath = imagePaths[page]
-                    val bmp = remember(currentPath) { try { android.graphics.BitmapFactory.decodeFile(currentPath) } catch (_: Exception) { null } }
+                    val bmp by produceState<android.graphics.Bitmap?>(initialValue = null, currentPath, targetWidthPx, targetHeightPx) {
+                        value = SecureImageDecoder.decodeForDisplay(currentPath, targetWidthPx, targetHeightPx)
+                    }
 
                     bmp?.let {
                         androidx.compose.foundation.Image(
@@ -98,7 +102,7 @@ fun FullScreenImageViewer(imagePaths: List<String>, initialIndex: Int = 0, onClo
                             .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = stringResource(R.string.image_counter, (pagerState.currentPage ?: 0) + 1, imagePaths.size),
+                            text = stringResource(R.string.image_counter, pagerState.currentPage + 1, imagePaths.size),
                             color = Color.White,
                             fontSize = 14.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace

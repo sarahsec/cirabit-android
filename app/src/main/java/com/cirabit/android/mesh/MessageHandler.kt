@@ -113,9 +113,15 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                 }
                 
                 com.cirabit.android.model.NoisePayloadType.FILE_TRANSFER -> {
+                    if (isOversizedIncomingFilePayload(peerID, noisePayload.data.size, "noise")) {
+                        return
+                    }
                     // Handle encrypted file transfer; generate unique message ID
                     val file = com.cirabit.android.model.CirabitFilePacket.decode(noisePayload.data)
                     if (file != null) {
+                        if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "noise")) {
+                            return
+                        }
                         Log.d(TAG, "🔓 Decrypted encrypted file from $peerID: name='${file.fileName}', size=${file.fileSize}, mime='${file.mimeType}'")
                         val uniqueMsgId = java.util.UUID.randomUUID().toString().uppercase()
                         val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
@@ -446,8 +452,14 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
         try {
             // Try file packet first (voice, image, etc.) and log outcome for FILE_TRANSFER
             val isFileTransfer = com.cirabit.android.protocol.MessageType.fromValue(packet.type) == com.cirabit.android.protocol.MessageType.FILE_TRANSFER
+            if (isFileTransfer && isOversizedIncomingFilePayload(peerID, packet.payload.size, "broadcast")) {
+                return
+            }
             val file = com.cirabit.android.model.CirabitFilePacket.decode(packet.payload)
             if (file != null) {
+                if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "broadcast")) {
+                    return
+                }
                 if (isFileTransfer) {
                     Log.d(TAG, "📥 FILE_TRANSFER decode success (broadcast): name='${file.fileName}', size=${file.fileSize}, mime='${file.mimeType}', from=${peerID.take(8)}")
                 }
@@ -495,8 +507,14 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
 
             // Try file packet first (voice, image, etc.) and log outcome for FILE_TRANSFER
             val isFileTransfer = com.cirabit.android.protocol.MessageType.fromValue(packet.type) == com.cirabit.android.protocol.MessageType.FILE_TRANSFER
+            if (isFileTransfer && isOversizedIncomingFilePayload(peerID, packet.payload.size, "private")) {
+                return
+            }
             val file = com.cirabit.android.model.CirabitFilePacket.decode(packet.payload)
             if (file != null) {
+                if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "private")) {
+                    return
+                }
                 if (isFileTransfer) {
                     Log.d(TAG, "📥 FILE_TRANSFER decode success (private): name='${file.fileName}', size=${file.fileSize}, mime='${file.mimeType}', from=${peerID.take(8)}")
                 }
@@ -638,6 +656,38 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
             }
         } catch (_: Exception) {
             // Best-effort; ignore errors
+        }
+    }
+
+    private fun isOversizedIncomingFilePayload(peerID: String, payloadSizeBytes: Int, channel: String): Boolean {
+        val limit = com.cirabit.android.util.AppConstants.Media.MAX_INCOMING_FILE_BYTES +
+                com.cirabit.android.util.AppConstants.Media.MAX_FILE_PACKET_OVERHEAD_BYTES
+        return if (payloadSizeBytes.toLong() > limit) {
+            Log.w(
+                TAG,
+                "🚫 Dropping oversized file payload ($channel) from ${peerID.take(8)}... payload=$payloadSizeBytes bytes limit=$limit"
+            )
+            true
+        } else {
+            false
+        }
+    }
+
+    private fun isOversizedIncomingFile(
+        peerID: String,
+        declaredFileSizeBytes: Long,
+        contentSizeBytes: Long,
+        channel: String
+    ): Boolean {
+        val limit = com.cirabit.android.util.AppConstants.Media.MAX_INCOMING_FILE_BYTES
+        return if (declaredFileSizeBytes > limit || contentSizeBytes > limit) {
+            Log.w(
+                TAG,
+                "🚫 Dropping oversized decoded file ($channel) from ${peerID.take(8)}... declared=$declaredFileSizeBytes content=$contentSizeBytes limit=$limit"
+            )
+            true
+        } else {
+            false
         }
     }
 }

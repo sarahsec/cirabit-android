@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Prevented false "could not verify updates" states caused by cancelled Compose coroutines.
+- Hardened incoming media/file handling against oversized payload DoS by enforcing `MAX_INCOMING_FILE_BYTES` during fragment reassembly, TLV decode, and message handling.
+- Added disk-space preflight checks before persisting incoming files to reduce storage exhaustion risk.
+- Replaced direct image decoding in chat/UI with bounded two-pass decode (`inJustDecodeBounds` + `inSampleSize`) on `Dispatchers.IO` and explicit OOM fallback.
+- Removed file `readBytes()` from chat rendering path; file cards now render from metadata/path only.
 
 ## [1.4.0] - 2025-10-15
 ### Fixed

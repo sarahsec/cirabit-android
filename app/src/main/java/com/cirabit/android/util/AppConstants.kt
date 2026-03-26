@@ -125,6 +125,10 @@ object AppConstants {
 
     object Media {
         const val MAX_FILE_SIZE_BYTES: Long = 50L * 1024 * 1024
+        const val MAX_INCOMING_FILE_BYTES: Long = MAX_FILE_SIZE_BYTES
+        const val MAX_FILE_PACKET_OVERHEAD_BYTES: Long = 256L * 1024L
+        const val MIN_FREE_STORAGE_BUFFER_BYTES: Long = 5L * 1024 * 1024
+        const val MAX_IMAGE_PIXELS: Long = 4096L * 4096L
     }
 
     object Services {
