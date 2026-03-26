@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.cirabit.android.model.MessageReaction
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Random
@@ -229,6 +230,23 @@ class BinaryProtocolTest {
             assertEquals("fromValue must resolve for ${msgType.name}",
                 msgType, MessageType.fromValue(decoded.type))
         }
+    }
+
+    @Test
+    fun `reaction payload codec round-trips correctly`() {
+        val original = MessageReaction(
+            messageID = "9F3A8D23A4A7490D",
+            emoji = "👍",
+            reactorPeerID = "1122334455667788",
+            isRemoval = false
+        )
+
+        val encoded = MessageReactionCodec.encode(original)
+        assertNotNull("Reaction payload must encode", encoded)
+
+        val decoded = MessageReactionCodec.decode(encoded!!)
+        assertNotNull("Reaction payload must decode", decoded)
+        assertEquals(original, decoded)
     }
 
     /**

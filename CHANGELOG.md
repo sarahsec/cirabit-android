@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Emoji reactions for messages with long-press picker (`👍 ❤️ 😂 😮 😢 😡`) and grouped counters under each message.
+- Mesh protocol support for reactions with a dedicated packet type (`MSG_REACTION`) plus encrypted private reactions over Noise transport.
 - Official app language configuration for:
   - English (United States) `en-US`
   - Portuguese (Brazil) `pt-BR`

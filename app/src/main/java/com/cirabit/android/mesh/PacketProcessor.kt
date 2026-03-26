@@ -146,6 +146,7 @@ class PacketProcessor(private val myPeerID: String) {
             MessageType.ANNOUNCE -> handleAnnounce(routed)
             MessageType.MESSAGE -> handleMessage(routed)
             MessageType.FILE_TRANSFER -> handleMessage(routed) // treat same routing path; parsing happens in handler
+            MessageType.MSG_REACTION -> handleMessageReaction(routed)
             MessageType.LEAVE -> handleLeave(routed)
             MessageType.FRAGMENT -> handleFragment(routed)
             MessageType.REQUEST_SYNC -> handleRequestSync(routed)
@@ -210,6 +211,15 @@ class PacketProcessor(private val myPeerID: String) {
         val peerID = routed.peerID ?: "unknown"
         Log.d(TAG, "Processing message from ${formatPeerForLog(peerID)}")
         delegate?.handleMessage(routed)
+    }
+
+    /**
+     * Handle emoji reaction message updates
+     */
+    private suspend fun handleMessageReaction(routed: RoutedPacket) {
+        val peerID = routed.peerID ?: "unknown"
+        Log.d(TAG, "Processing reaction from ${formatPeerForLog(peerID)}")
+        delegate?.handleMessageReaction(routed)
     }
     
     /**
@@ -316,6 +326,7 @@ interface PacketProcessorDelegate {
     fun handleNoiseEncrypted(routed: RoutedPacket)
     fun handleAnnounce(routed: RoutedPacket)
     fun handleMessage(routed: RoutedPacket)
+    fun handleMessageReaction(routed: RoutedPacket)
     fun handleLeave(routed: RoutedPacket)
     fun handleFragment(packet: CirabitPacket): CirabitPacket?
     fun handleRequestSync(routed: RoutedPacket)

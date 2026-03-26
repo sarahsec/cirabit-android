@@ -237,11 +237,12 @@ class SecurityManager(private val encryptionService: EncryptionService, private 
      */
     private fun verifyPacketSignature(packet: CirabitPacket, peerID: String): Boolean {
         try {
-            // only verify ANNOUNCE, MESSAGE, and FILE_TRANSFER
+            // only verify signed public packet classes we currently rely on
             if (MessageType.fromValue(packet.type) !in setOf(
                     MessageType.ANNOUNCE,
                     MessageType.MESSAGE,
-                    MessageType.FILE_TRANSFER
+                    MessageType.FILE_TRANSFER,
+                    MessageType.MSG_REACTION
                 )) {
                 return true
             }

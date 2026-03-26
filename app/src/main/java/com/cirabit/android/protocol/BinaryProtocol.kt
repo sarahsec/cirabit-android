@@ -1,6 +1,7 @@
 package com.cirabit.android.protocol
 
 import android.os.Parcelable
+import com.cirabit.android.model.MessageReaction
 import kotlinx.parcelize.Parcelize
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -17,11 +18,98 @@ enum class MessageType(val value: UByte) {
     NOISE_ENCRYPTED(0x11u),  // Noise encrypted transport message
     FRAGMENT(0x20u), // Fragmentation for large packets
     REQUEST_SYNC(0x21u), // GCS-based sync request
-    FILE_TRANSFER(0x22u); // New: File transfer packet (BLE voice notes, etc.)
+    FILE_TRANSFER(0x22u), // File transfer packet (BLE voice notes, etc.)
+    MSG_REACTION(0x23u); // Emoji reaction update for an existing message
 
     companion object {
         fun fromValue(value: UByte): MessageType? {
             return values().find { it.value == value }
+        }
+    }
+}
+
+/**
+ * Binary payload codec for message reactions.
+ *
+ * Layout:
+ * - Version: 1 byte
+ * - Flags: 1 byte (bit 0 = isRemoval)
+ * - MessageIDLength: 1 byte
+ * - EmojiLength: 1 byte
+ * - ReactorLength: 1 byte
+ * - MessageID bytes (UTF-8)
+ * - Emoji bytes (UTF-8)
+ * - Reactor bytes (UTF-8)
+ */
+object MessageReactionCodec {
+    private const val VERSION_1: UByte = 1u
+    private const val FLAG_REMOVAL: UByte = 0x01u
+    private const val HEADER_SIZE = 5
+
+    fun encode(reaction: MessageReaction): ByteArray? {
+        return try {
+            val messageIDBytes = reaction.messageID.toByteArray(Charsets.UTF_8)
+            val emojiBytes = reaction.emoji.toByteArray(Charsets.UTF_8)
+            val reactorBytes = reaction.reactorPeerID.toByteArray(Charsets.UTF_8)
+
+            if (messageIDBytes.isEmpty() || emojiBytes.isEmpty() || reactorBytes.isEmpty()) return null
+            if (messageIDBytes.size > 255 || emojiBytes.size > 255 || reactorBytes.size > 255) return null
+
+            val buffer = ByteBuffer.allocate(
+                HEADER_SIZE + messageIDBytes.size + emojiBytes.size + reactorBytes.size
+            ).apply { order(ByteOrder.BIG_ENDIAN) }
+
+            var flags: UByte = 0u
+            if (reaction.isRemoval) {
+                flags = flags or FLAG_REMOVAL
+            }
+
+            buffer.put(VERSION_1.toByte())
+            buffer.put(flags.toByte())
+            buffer.put(messageIDBytes.size.toByte())
+            buffer.put(emojiBytes.size.toByte())
+            buffer.put(reactorBytes.size.toByte())
+            buffer.put(messageIDBytes)
+            buffer.put(emojiBytes)
+            buffer.put(reactorBytes)
+
+            return buffer.array()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun decode(payload: ByteArray): MessageReaction? {
+        try {
+            if (payload.size < HEADER_SIZE) return null
+            val buffer = ByteBuffer.wrap(payload).apply { order(ByteOrder.BIG_ENDIAN) }
+
+            val version = buffer.get().toUByte()
+            if (version != VERSION_1) return null
+
+            val flags = buffer.get().toUByte()
+            val messageIDLength = buffer.get().toInt() and 0xFF
+            val emojiLength = buffer.get().toInt() and 0xFF
+            val reactorLength = buffer.get().toInt() and 0xFF
+
+            if (messageIDLength == 0 || emojiLength == 0 || reactorLength == 0) return null
+            if (buffer.remaining() != messageIDLength + emojiLength + reactorLength) return null
+
+            val messageIDBytes = ByteArray(messageIDLength)
+            val emojiBytes = ByteArray(emojiLength)
+            val reactorBytes = ByteArray(reactorLength)
+            buffer.get(messageIDBytes)
+            buffer.get(emojiBytes)
+            buffer.get(reactorBytes)
+
+            return MessageReaction(
+                messageID = String(messageIDBytes, Charsets.UTF_8),
+                emoji = String(emojiBytes, Charsets.UTF_8),
+                reactorPeerID = String(reactorBytes, Charsets.UTF_8),
+                isRemoval = (flags and FLAG_REMOVAL) != 0u.toUByte()
+            )
+        } catch (_: Exception) {
+            return null
         }
     }
 }

@@ -37,6 +37,7 @@ This project is released into the public domain. See the [LICENSE](LICENSE.md) f
 - **✅ Decentralized Mesh Network**: Automatic peer discovery and multi-hop message relay over Bluetooth LE
 - **✅ End-to-End Encryption**: X25519 key exchange + AES-256-GCM for private messages
 - **✅ Channel-Based Chats**: Topic-based group messaging with optional password protection
+- **✅ Emoji Reactions**: Long-press messages to react with quick emojis and live counters
 - **✅ Store & Forward**: Messages cached for offline peers and delivered when they reconnect
 - **✅ Privacy First**: No accounts, no phone numbers, no persistent identifiers
 - **✅ IRC-Style Commands**: Familiar `/join`, `/msg`, `/who` style interface
@@ -151,6 +152,7 @@ The app requires the following permissions (automatically requested):
 - **Haptic Feedback**: Vibrations for interactions and notifications
 - **Adaptive Layout**: Optimized for various Android screen sizes
 - **Message Status**: Real-time delivery and read receipts
+- **Emoji Reactions**: Long-press any message to react and tap chips to toggle your reaction
 - **RSSI Indicators**: Signal strength colors for each peer
 
 ### Channel Features
@@ -164,6 +166,7 @@ The app requires the following permissions (automatically requested):
 
 ### Encryption
 - **Private Messages**: X25519 key exchange + AES-256-GCM encryption
+- **Private Reactions**: Encrypted with the same private-message transport (Noise/X25519 + AES-256-GCM)
 - **Channel Messages**: Argon2id password derivation + AES-256-GCM
 - **Digital Signatures**: Ed25519 for message authenticity
 - **Forward Secrecy**: New key pairs generated each session
@@ -201,6 +204,7 @@ The app requires the following permissions (automatically requested):
 ### Binary Protocol Compatibility
 cirabit uses an efficient binary protocol optimized for Bluetooth LE:
 - Compact packet format with 1-byte type field
+- Dedicated reaction packet type (`MSG_REACTION`) for emoji updates
 - TTL-based message routing (max 7 hops)
 - Automatic fragmentation for large messages
 - Message deduplication via unique IDs

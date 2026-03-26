@@ -5,6 +5,7 @@ import com.cirabit.android.ui.NotificationTextUtils
 import com.cirabit.android.mesh.BluetoothMeshService
 import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.model.DeliveryStatus
+import com.cirabit.android.model.MessageReaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.Date
@@ -92,6 +93,10 @@ class MeshDelegateHandler(
                 messageManager.cleanupDeduplicationCaches()
             }
         }
+    }
+
+    override fun didReceiveMessageReaction(reaction: MessageReaction) {
+        // Reactions are handled directly by ChatViewModel state.
     }
     
     override fun didUpdatePeerList(peers: List<String>) {

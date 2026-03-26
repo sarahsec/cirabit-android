@@ -31,6 +31,7 @@ import com.cirabit.android.core.ui.component.sheet.CirabitSheetCenterTopBar
 import com.cirabit.android.core.ui.component.sheet.CirabitSheetTitle
 import com.cirabit.android.core.ui.component.sheet.CirabitSheetTopBar
 import com.cirabit.android.geohash.ChannelID
+import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.ui.theme.BASE_FONT_SIZE
 import com.cirabit.android.nostr.GeohashAliasRegistry
 import com.cirabit.android.nostr.GeohashConversationRegistry
@@ -761,6 +762,7 @@ fun PrivateChatSheet(
     val peerSessionStates by viewModel.peerSessionStates.collectAsStateWithLifecycle()
     val favoritePeers by viewModel.favoritePeers.collectAsStateWithLifecycle()
     val peerFingerprints by viewModel.peerFingerprints.collectAsStateWithLifecycle()
+    val messageReactions by viewModel.messageReactions.collectAsStateWithLifecycle()
 
     val verifiedFingerprints by viewModel.verifiedFingerprints.collectAsStateWithLifecycle()
 
@@ -810,6 +812,8 @@ fun PrivateChatSheet(
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
     )
+    var showReactionPicker by remember { mutableStateOf(false) }
+    var selectedMessageForReaction by remember { mutableStateOf<CirabitMessage?>(null) }
 
     if (isPresented) {
         CirabitBottomSheet(
@@ -830,13 +834,21 @@ fun PrivateChatSheet(
 
                     MessagesList(
                         messages = messages,
+                        messageReactions = messageReactions,
                         currentUserNickname = nickname,
+                        currentUserPeerID = viewModel.meshService.myPeerID,
                         meshService = viewModel.meshService,
                         modifier = Modifier.weight(1f),
                         forceScrollToBottom = forceScrollToBottom,
                         onScrolledUpChanged = { isUp -> isScrolledUp = isUp },
                         onNicknameClick = { /* handle mention */ },
-                        onMessageLongPress = { /* handle long press */ },
+                        onMessageLongPress = { message ->
+                            selectedMessageForReaction = message
+                            showReactionPicker = true
+                        },
+                        onReactionClick = { message, emoji ->
+                            viewModel.toggleMessageReaction(message, emoji)
+                        },
                         onCancelTransfer = { msg -> viewModel.cancelMediaSend(msg.id) },
                         onImageClick = { _, _, _ -> /* handle image click */ }
                     )
@@ -989,4 +1001,19 @@ fun PrivateChatSheet(
             }
         }
     }
+
+    MessageReactionPicker(
+        isVisible = showReactionPicker,
+        onDismiss = {
+            showReactionPicker = false
+            selectedMessageForReaction = null
+        },
+        onEmojiSelected = { emoji ->
+            selectedMessageForReaction?.let { message ->
+                viewModel.toggleMessageReaction(message, emoji)
+            }
+            showReactionPicker = false
+            selectedMessageForReaction = null
+        }
+    )
 }

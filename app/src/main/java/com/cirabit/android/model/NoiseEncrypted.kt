@@ -23,7 +23,8 @@ enum class NoisePayloadType(val value: UByte) {
     DELIVERED(0x03u),           // Message was delivered
     VERIFY_CHALLENGE(0x10u),    // Verification challenge
     VERIFY_RESPONSE(0x11u),     // Verification response
-    FILE_TRANSFER(0x20u);
+    FILE_TRANSFER(0x20u),       // Encrypted file transfer
+    REACTION(0x21u);            // Encrypted emoji reaction update
 
 
     companion object {

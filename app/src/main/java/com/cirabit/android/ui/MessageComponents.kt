@@ -1,6 +1,7 @@
 package com.cirabit.android.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.cirabit.android.ui.media.FileMessageItem
 import com.cirabit.android.model.CirabitMessageType
 import com.cirabit.android.R
@@ -48,6 +50,8 @@ import androidx.compose.ui.res.stringResource
 
 
 // VoiceNotePlayer moved to com.cirabit.android.ui.media.VoiceNotePlayer
+
+private val DEFAULT_REACTION_EMOJIS = listOf("👍", "❤️", "😂", "😮", "😢", "😡")
 
 /**
  * Message display components for ChatScreen
@@ -57,13 +61,16 @@ import androidx.compose.ui.res.stringResource
 @Composable
 fun MessagesList(
     messages: List<CirabitMessage>,
+    messageReactions: Map<String, Map<String, Set<String>>> = emptyMap(),
     currentUserNickname: String,
+    currentUserPeerID: String,
     meshService: BluetoothMeshService,
     modifier: Modifier = Modifier,
     forceScrollToBottom: Boolean = false,
     onScrolledUpChanged: ((Boolean) -> Unit)? = null,
     onNicknameClick: ((String) -> Unit)? = null,
     onMessageLongPress: ((CirabitMessage) -> Unit)? = null,
+    onReactionClick: ((CirabitMessage, String) -> Unit)? = null,
     onCancelTransfer: ((CirabitMessage) -> Unit)? = null,
     onImageClick: ((String, List<String>, Int) -> Unit)? = null
 ) {
@@ -120,11 +127,14 @@ fun MessagesList(
         ) { message ->
                 MessageItem(
                     message = message,
+                    messageReactions = messageReactions[message.id] ?: emptyMap(),
                     messages = messages,
                     currentUserNickname = currentUserNickname,
+                    currentUserPeerID = currentUserPeerID,
                     meshService = meshService,
                     onNicknameClick = onNicknameClick,
                     onMessageLongPress = onMessageLongPress,
+                    onReactionClick = onReactionClick,
                     onCancelTransfer = onCancelTransfer,
                     onImageClick = onImageClick
                 )
@@ -136,11 +146,14 @@ fun MessagesList(
 @Composable
 fun MessageItem(
     message: CirabitMessage,
+    messageReactions: Map<String, Set<String>> = emptyMap(),
     currentUserNickname: String,
+    currentUserPeerID: String,
     meshService: BluetoothMeshService,
     messages: List<CirabitMessage> = emptyList(),
     onNicknameClick: ((String) -> Unit)? = null,
     onMessageLongPress: ((CirabitMessage) -> Unit)? = null,
+    onReactionClick: ((CirabitMessage, String) -> Unit)? = null,
     onCancelTransfer: ((CirabitMessage) -> Unit)? = null,
     onImageClick: ((String, List<String>, Int) -> Unit)? = null
 ) {
@@ -192,6 +205,15 @@ fun MessageItem(
         }
         
         // Link previews removed; links are now highlighted inline and clickable within the message text
+        if (messageReactions.isNotEmpty()) {
+            MessageReactionRow(
+                reactions = messageReactions,
+                currentUserPeerID = currentUserPeerID,
+                onReactionTap = { emoji ->
+                    onReactionClick?.invoke(message, emoji)
+                }
+            )
+        }
     }
 }
 
@@ -461,6 +483,79 @@ fun MessageItem(
             ),
             onTextLayout = { result -> textLayoutResult = result }
         )
+    }
+}
+
+@Composable
+fun MessageReactionPicker(
+    isVisible: Boolean,
+    onDismiss: () -> Unit,
+    onEmojiSelected: (String) -> Unit
+) {
+    if (!isVisible) return
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "React to message",
+                fontFamily = FontFamily.Monospace
+            )
+        },
+        text = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                DEFAULT_REACTION_EMOJIS.forEach { emoji ->
+                    TextButton(onClick = { onEmojiSelected(emoji) }) {
+                        Text(
+                            text = emoji,
+                            fontSize = 24.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {}
+    )
+}
+
+@Composable
+private fun MessageReactionRow(
+    reactions: Map<String, Set<String>>,
+    currentUserPeerID: String,
+    onReactionTap: (String) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        reactions.toSortedMap().forEach { (emoji, peers) ->
+            val hasMine = peers.contains(currentUserPeerID)
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = if (hasMine) colorScheme.primary.copy(alpha = 0.2f) else colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (hasMine) colorScheme.primary else colorScheme.outline.copy(alpha = 0.4f)
+                ),
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .clickable { onReactionTap(emoji) }
+            ) {
+                Text(
+                    text = "$emoji ${peers.size}",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurface
+                )
+            }
+        }
     }
 }
 

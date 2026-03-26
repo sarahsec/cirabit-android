@@ -1,4 +1,6 @@
 ### Added
+- Emoji reactions for messages (long-press picker and grouped counters).
+- New mesh reaction protocol packet (`MSG_REACTION`) with encrypted private reactions.
 - Automatic app version checks every 12 hours.
 - A one-time update available dialog per release.
 - Update check toggle and status in About settings.

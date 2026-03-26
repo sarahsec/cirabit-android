@@ -29,6 +29,7 @@ fun ChatUserSheet(
     onDismiss: () -> Unit,
     targetNickname: String,
     selectedMessage: CirabitMessage? = null,
+    onReactToMessage: ((CirabitMessage) -> Unit)? = null,
     viewModel: ChatViewModel,
     modifier: Modifier = Modifier
 ) {
@@ -85,6 +86,18 @@ fun ChatUserSheet(
                                     // Copy the message content to clipboard
                                     clipboardManager.setText(AnnotatedString(message.content))
                                     onDismiss()
+                                }
+                            )
+                        }
+
+                        item {
+                            UserActionRow(
+                                title = stringResource(R.string.action_react_message_title),
+                                subtitle = stringResource(R.string.action_react_message_subtitle),
+                                titleColor = standardGreen,
+                                onClick = {
+                                    onDismiss()
+                                    onReactToMessage?.invoke(message)
                                 }
                             )
                         }

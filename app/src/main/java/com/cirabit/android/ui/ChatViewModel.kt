@@ -13,24 +13,24 @@ import com.cirabit.android.mesh.BluetoothMeshDelegate
 import com.cirabit.android.mesh.BluetoothMeshService
 import com.cirabit.android.service.MeshServiceHolder
 import com.cirabit.android.model.CirabitMessage
-import com.cirabit.android.model.CirabitMessageType
+import com.cirabit.android.model.MessageReaction
 import com.cirabit.android.nostr.NostrIdentityBridge
 import com.cirabit.android.protocol.CirabitPacket
+import com.cirabit.android.protocol.MessageType
+import com.cirabit.android.protocol.SpecialRecipients
+import com.cirabit.android.sync.PacketIdUtil
 
-
-import kotlinx.coroutines.launch
 import com.cirabit.android.util.NotificationIntervalManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
 import java.util.Date
 import kotlin.random.Random
 import com.cirabit.android.services.VerificationService
 import com.cirabit.android.identity.SecureIdentityStateManager
 import com.cirabit.android.noise.NoiseSession
-import com.cirabit.android.nostr.GeohashAliasRegistry
 import com.cirabit.android.util.dataFromHexString
 import com.cirabit.android.util.hexEncodedString
-import java.security.MessageDigest
 
 /**
  * Refactored ChatViewModel - Main coordinator for cirabit functionality
@@ -84,6 +84,9 @@ class ChatViewModel(
     // Transfer progress tracking
     private val transferMessageMap = mutableMapOf<String, String>()
     private val messageTransferMap = mutableMapOf<String, String>()
+
+    // Message reactions: messageID -> emoji -> peerIDs
+    private val _messageReactions = MutableStateFlow<Map<String, Map<String, Set<String>>>>(emptyMap())
 
     // Specialized managers
     private val dataManager = DataManager(application.applicationContext)
@@ -190,6 +193,7 @@ class ChatViewModel(
     val geohashPeople: StateFlow<List<GeoPerson>> = state.geohashPeople
     val teleportedGeo: StateFlow<Set<String>> = state.teleportedGeo
     val geohashParticipantCounts: StateFlow<Map<String, Int>> = state.geohashParticipantCounts
+    val messageReactions: StateFlow<Map<String, Map<String, Set<String>>>> = _messageReactions.asStateFlow()
 
     init {
         // Note: Mesh service delegate is now set by MainActivity
@@ -544,11 +548,14 @@ class ChatViewModel(
                 // Send to geohash channel via Nostr ephemeral event
                 geohashViewModel.sendGeohashMessage(content, selectedLocationChannel.channel, meshService.myPeerID, state.getNicknameValue())
             } else {
+                val outgoingTimestamp = System.currentTimeMillis()
+                val outgoingMessageID = computePublicMessageID(content, outgoingTimestamp)
                 // Send public/channel message via mesh
                 val message = CirabitMessage(
+                    id = outgoingMessageID,
                     sender = state.getNicknameValue() ?: meshService.myPeerID,
                     content = content,
-                    timestamp = Date(),
+                    timestamp = Date(outgoingTimestamp),
                     isRelay = false,
                     senderPeerID = meshService.myPeerID,
                     mentions = if (mentions.isNotEmpty()) mentions else null,
@@ -568,21 +575,115 @@ class ChatViewModel(
                             meshService.myPeerID,
                             onEncryptedPayload = { encryptedData ->
                                 // This would need proper mesh service integration
-                                meshService.sendMessage(content, mentions, currentChannelValue)
+                                meshService.sendMessage(content, mentions, currentChannelValue, outgoingTimestamp)
                             },
                             onFallback = {
-                                meshService.sendMessage(content, mentions, currentChannelValue)
+                                meshService.sendMessage(content, mentions, currentChannelValue, outgoingTimestamp)
                             }
                         )
                     } else {
-                        meshService.sendMessage(content, mentions, currentChannelValue)
+                        meshService.sendMessage(content, mentions, currentChannelValue, outgoingTimestamp)
                     }
                 } else {
                     messageManager.addMessage(message)
-                    meshService.sendMessage(content, mentions, null)
+                    meshService.sendMessage(content, mentions, null, outgoingTimestamp)
                 }
             }
         }
+    }
+
+    fun toggleMessageReaction(message: CirabitMessage, emoji: String) {
+        if (message.id.isBlank() || emoji.isBlank()) return
+
+        val myPeerID = meshService.myPeerID
+        val alreadyReacted = _messageReactions.value[message.id]?.get(emoji)?.contains(myPeerID) == true
+        val reaction = MessageReaction(
+            messageID = message.id,
+            emoji = emoji,
+            reactorPeerID = myPeerID,
+            isRemoval = alreadyReacted
+        )
+
+        applyReactionUpdate(reaction)
+
+        if (message.isPrivate) {
+            val targetPeerID = resolvePrivateReactionPeer(message, myPeerID)
+            if (targetPeerID == null) {
+                Log.w(TAG, "Could not resolve private reaction target for message ${message.id}")
+                return
+            }
+            meshService.sendMessageReaction(
+                messageID = message.id,
+                emoji = emoji,
+                recipientPeerID = targetPeerID,
+                isPrivate = true,
+                isRemoval = alreadyReacted
+            )
+            return
+        }
+
+        meshService.sendMessageReaction(
+            messageID = message.id,
+            emoji = emoji,
+            recipientPeerID = null,
+            isPrivate = false,
+            isRemoval = alreadyReacted
+        )
+    }
+
+    private fun resolvePrivateReactionPeer(message: CirabitMessage, myPeerID: String): String? {
+        val senderPeerID = message.senderPeerID
+        val candidate = when {
+            senderPeerID.isNullOrBlank() -> state.getPrivateChatSheetPeerValue() ?: state.getSelectedPrivateChatPeerValue()
+            senderPeerID != myPeerID -> senderPeerID
+            else -> state.getPrivateChatSheetPeerValue() ?: state.getSelectedPrivateChatPeerValue()
+        } ?: return null
+
+        if (candidate == myPeerID) return null
+        if (!candidate.matches(Regex("^[0-9a-fA-F]{16}$"))) return null
+        return candidate
+    }
+
+    private fun applyReactionUpdate(reaction: MessageReaction) {
+        _messageReactions.update { current ->
+            val perMessage = (current[reaction.messageID] ?: emptyMap()).toMutableMap()
+            val users = (perMessage[reaction.emoji] ?: emptySet()).toMutableSet()
+
+            if (reaction.isRemoval) {
+                users.remove(reaction.reactorPeerID)
+            } else {
+                users.add(reaction.reactorPeerID)
+            }
+
+            if (users.isEmpty()) {
+                perMessage.remove(reaction.emoji)
+            } else {
+                perMessage[reaction.emoji] = users
+            }
+
+            val updated = current.toMutableMap()
+            if (perMessage.isEmpty()) {
+                updated.remove(reaction.messageID)
+            } else {
+                updated[reaction.messageID] = perMessage
+            }
+            updated
+        }
+    }
+
+    private fun computePublicMessageID(content: String, timestampMs: Long): String {
+        val senderID = meshService.myPeerID.dataFromHexString() ?: ByteArray(8)
+        val packet = CirabitPacket(
+            version = 1u,
+            type = MessageType.MESSAGE.value,
+            senderID = senderID,
+            recipientID = SpecialRecipients.BROADCAST,
+            timestamp = timestampMs.toULong(),
+            payload = content.toByteArray(Charsets.UTF_8),
+            signature = null,
+            ttl = com.cirabit.android.util.AppConstants.MESSAGE_TTL_HOPS
+        )
+        return PacketIdUtil.computeIdHex(packet)
     }
 
     // MARK: - Utility Functions
@@ -869,6 +970,10 @@ class ChatViewModel(
     override fun didReceiveMessage(message: CirabitMessage) {
         meshDelegateHandler.didReceiveMessage(message)
     }
+
+    override fun didReceiveMessageReaction(reaction: MessageReaction) {
+        applyReactionUpdate(reaction)
+    }
     
     override fun didUpdatePeerList(peers: List<String>) {
         meshDelegateHandler.didUpdatePeerList(peers)
@@ -915,6 +1020,7 @@ class ChatViewModel(
         
         // Clear all UI managers
         messageManager.clearAllMessages()
+        _messageReactions.value = emptyMap()
         channelManager.clearAllChannels()
         privateChatManager.clearAllPrivateChats()
         dataManager.clearAllData()

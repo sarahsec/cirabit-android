@@ -210,6 +210,8 @@
     <string name="choose_action_user">Escolha uma ação para este usuário</string>
     <string name="action_copy_message_title">Copiar mensagem</string>
     <string name="action_copy_message_subtitle">Copiar esta mensagem para a área de transferência</string>
+    <string name="action_react_message_title">Reagir com emoji</string>
+    <string name="action_react_message_subtitle">Abrir reações com emoji para esta mensagem</string>
     <string name="action_slap_title">Dar um tapa em %1$s</string>
     <string name="action_slap_subtitle">Enviar um tapa brincalhão</string>
     <string name="action_hug_title">Abraçar %1$s</string>

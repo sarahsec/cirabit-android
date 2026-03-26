@@ -2,15 +2,16 @@ package com.cirabit.android.mesh
 
 import android.util.Log
 import com.cirabit.android.model.CirabitMessage
-import com.cirabit.android.model.CirabitMessageType
 import com.cirabit.android.model.IdentityAnnouncement
+import com.cirabit.android.model.MessageReaction
 import com.cirabit.android.model.RoutedPacket
 import com.cirabit.android.protocol.CirabitPacket
 import com.cirabit.android.protocol.MessageType
+import com.cirabit.android.protocol.MessageReactionCodec
+import com.cirabit.android.sync.PacketIdUtil
 import com.cirabit.android.util.toHexString
 import kotlinx.coroutines.*
 import java.util.*
-import kotlin.random.Random
 
 /**
  * Handles processing of different message types
@@ -156,6 +157,21 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                     
                     // Simplified: Call delegate with messageID and peerID directly
                     delegate?.onReadReceiptReceived(messageID, peerID)
+                }
+                com.cirabit.android.model.NoisePayloadType.REACTION -> {
+                    val reaction = MessageReactionCodec.decode(noisePayload.data)
+                    if (reaction == null) {
+                        Log.w(TAG, "Failed to decode encrypted reaction from $peerID")
+                        return
+                    }
+
+                    // Enforce sender identity from packet route information
+                    val sanitized = reaction.copy(reactorPeerID = peerID)
+                    delegate?.onMessageReactionReceived(
+                        reaction = sanitized,
+                        fromPeerID = peerID,
+                        timestampMs = packet.timestamp.toLong()
+                    )
                 }
                 com.cirabit.android.model.NoisePayloadType.VERIFY_CHALLENGE -> {
                     Log.d(TAG, "🔐 Verify challenge received from $peerID (${noisePayload.data.size} bytes)")
@@ -375,6 +391,42 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
         }
         // Message relay is now handled by centralized PacketRelayManager
     }
+
+    /**
+     * Handle public emoji reaction packet.
+     */
+    suspend fun handleMessageReaction(routed: RoutedPacket) {
+        val packet = routed.packet
+        val peerID = routed.peerID ?: "unknown"
+        if (peerID == myPeerID) return
+
+        val recipientID = packet.recipientID?.takeIf { !it.contentEquals(delegate?.getBroadcastRecipient()) }
+        if (recipientID != null && recipientID.toHexString() != myPeerID) {
+            return
+        }
+
+        if (recipientID == null) {
+            val peerInfo = delegate?.getPeerInfo(peerID)
+            if (peerInfo == null || !peerInfo.isVerifiedNickname) {
+                Log.w(TAG, "🚫 Dropping reaction from unverified or unknown peer ${peerID.take(8)}...")
+                return
+            }
+        }
+
+        val reaction = MessageReactionCodec.decode(packet.payload)
+        if (reaction == null) {
+            Log.w(TAG, "Failed to decode reaction payload from $peerID")
+            return
+        }
+
+        // Enforce sender identity from packet metadata.
+        val sanitized = reaction.copy(reactorPeerID = peerID)
+        delegate?.onMessageReactionReceived(
+            reaction = sanitized,
+            fromPeerID = peerID,
+            timestampMs = packet.timestamp.toLong()
+        )
+    }
     
     /**
      * Handle broadcast message with verification enforcement
@@ -382,6 +434,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
     private suspend fun handleBroadcastMessage(routed: RoutedPacket) {
         val packet = routed.packet
         val peerID = routed.peerID ?: "unknown"
+        val stableMessageID = PacketIdUtil.computeIdHex(packet)
         
         // Enforce: only accept public messages from verified peers we know
         val peerInfo = delegate?.getPeerInfo(peerID)
@@ -400,7 +453,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                 }
                 val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                 val message = CirabitMessage(
-                    id = java.util.UUID.randomUUID().toString().uppercase(),
+                    id = stableMessageID,
                     sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                     content = savedPath,
                     type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
@@ -416,6 +469,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
 
             // Fallback: plain text
             val message = CirabitMessage(
+                id = stableMessageID,
                 sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                 content = String(packet.payload, Charsets.UTF_8),
                 senderPeerID = peerID,
@@ -432,6 +486,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
      */
     private suspend fun handlePrivateMessage(packet: CirabitPacket, peerID: String) {
         try {
+            val stableMessageID = PacketIdUtil.computeIdHex(packet)
             // Verify signature if present
             if (packet.signature != null && !delegate?.verifySignature(packet, peerID)!!) {
                 Log.w(TAG, "Invalid signature for private message from $peerID")
@@ -447,7 +502,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                 }
                 val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                 val message = CirabitMessage(
-                    id = java.util.UUID.randomUUID().toString().uppercase(),
+                    id = stableMessageID,
                     sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                     content = savedPath,
                     type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
@@ -465,6 +520,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
 
             // Fallback: plain text
             val message = CirabitMessage(
+                id = stableMessageID,
                 sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                 content = String(packet.payload, Charsets.UTF_8),
                 senderPeerID = peerID,
@@ -623,6 +679,7 @@ interface MessageHandlerDelegate {
 
     // Callbacks
     fun onMessageReceived(message: CirabitMessage)
+    fun onMessageReactionReceived(reaction: MessageReaction, fromPeerID: String, timestampMs: Long)
     fun onChannelLeave(channel: String, fromPeer: String)
     fun onDeliveryAckReceived(messageID: String, peerID: String)
     fun onReadReceiptReceived(messageID: String, peerID: String)

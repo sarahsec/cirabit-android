@@ -189,6 +189,7 @@ class NostrDirectMessageHandler(
                     Log.w(TAG, "⚠️ Failed to decode Nostr file transfer from $convKey")
                 }
             }
+            NoisePayloadType.REACTION -> Unit // Reactions are currently mesh-only
             NoisePayloadType.VERIFY_CHALLENGE,
             NoisePayloadType.VERIFY_RESPONSE -> Unit // Ignore verification payloads in Nostr direct messages
         }

@@ -7,12 +7,15 @@ import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.protocol.MessagePadding
 import com.cirabit.android.model.RoutedPacket
 import com.cirabit.android.model.IdentityAnnouncement
+import com.cirabit.android.model.MessageReaction
 import com.cirabit.android.model.NoisePayload
 import com.cirabit.android.model.NoisePayloadType
 import com.cirabit.android.protocol.CirabitPacket
 import com.cirabit.android.protocol.MessageType
+import com.cirabit.android.protocol.MessageReactionCodec
 import com.cirabit.android.protocol.SpecialRecipients
 import com.cirabit.android.model.RequestSyncPacket
+import com.cirabit.android.sync.PacketIdUtil
 import com.cirabit.android.sync.GossipSyncManager
 import com.cirabit.android.util.toHexString
 import com.cirabit.android.services.VerificationService
@@ -418,6 +421,10 @@ class BluetoothMeshService(private val context: Context) {
                     } catch (_: Exception) { }
                 }
             }
+
+            override fun onMessageReactionReceived(reaction: MessageReaction, fromPeerID: String, timestampMs: Long) {
+                delegate?.didReceiveMessageReaction(reaction)
+            }
             
             override fun onChannelLeave(channel: String, fromPeer: String) {
                 delegate?.didReceiveChannelLeave(channel, fromPeer)
@@ -509,6 +516,17 @@ class BluetoothMeshService(private val context: Context) {
                     val pkt = routed.packet
                     val isBroadcast = (pkt.recipientID == null || pkt.recipientID.contentEquals(SpecialRecipients.BROADCAST))
                     if (isBroadcast && pkt.type == MessageType.MESSAGE.value) {
+                        gossipSyncManager.onPublicPacketSeen(pkt)
+                    }
+                } catch (_: Exception) { }
+            }
+
+            override fun handleMessageReaction(routed: RoutedPacket) {
+                serviceScope.launch { messageHandler.handleMessageReaction(routed) }
+                try {
+                    val pkt = routed.packet
+                    val isBroadcast = (pkt.recipientID == null || pkt.recipientID.contentEquals(SpecialRecipients.BROADCAST))
+                    if (isBroadcast && pkt.type == MessageType.MSG_REACTION.value) {
                         gossipSyncManager.onPublicPacketSeen(pkt)
                     }
                 } catch (_: Exception) { }
@@ -700,25 +718,113 @@ class BluetoothMeshService(private val context: Context) {
     /**
      * Send public message
      */
-    fun sendMessage(content: String, mentions: List<String> = emptyList(), channel: String? = null) {
-        if (content.isEmpty()) return
-        
-        serviceScope.launch {
-            val packet = CirabitPacket(
-                version = 1u,
-                type = MessageType.MESSAGE.value,
-                senderID = hexStringToByteArray(myPeerID),
-                recipientID = SpecialRecipients.BROADCAST,
-                timestamp = System.currentTimeMillis().toULong(),
-                payload = content.toByteArray(Charsets.UTF_8),
-                signature = null,
-                ttl = MAX_TTL
-            )
+    @Suppress("UNUSED_PARAMETER")
+    fun sendMessage(
+        content: String,
+        mentions: List<String> = emptyList(),
+        channel: String? = null,
+        timestampMs: Long? = null
+    ): String? {
+        if (content.isEmpty()) return null
 
+        val packet = CirabitPacket(
+            version = 1u,
+            type = MessageType.MESSAGE.value,
+            senderID = hexStringToByteArray(myPeerID),
+            recipientID = SpecialRecipients.BROADCAST,
+            timestamp = (timestampMs ?: System.currentTimeMillis()).toULong(),
+            payload = content.toByteArray(Charsets.UTF_8),
+            signature = null,
+            ttl = MAX_TTL
+        )
+        val messageID = PacketIdUtil.computeIdHex(packet)
+
+        serviceScope.launch {
             // Sign the packet before broadcasting
             val signedPacket = signPacketBeforeBroadcast(packet)
             connectionManager.broadcastPacket(RoutedPacket(signedPacket))
             // Track our own broadcast message for sync
+            try { gossipSyncManager.onPublicPacketSeen(signedPacket) } catch (_: Exception) { }
+        }
+
+        return messageID
+    }
+
+    /**
+     * Send an emoji reaction update for an existing message.
+     * Public reactions use MSG_REACTION, private reactions use NOISE_ENCRYPTED with REACTION payload.
+     */
+    fun sendMessageReaction(
+        messageID: String,
+        emoji: String,
+        recipientPeerID: String? = null,
+        isPrivate: Boolean = false,
+        isRemoval: Boolean = false
+    ) {
+        if (messageID.isBlank() || emoji.isBlank()) return
+
+        val reaction = MessageReaction(
+            messageID = messageID,
+            emoji = emoji,
+            reactorPeerID = myPeerID,
+            isRemoval = isRemoval
+        )
+        val encodedReaction = MessageReactionCodec.encode(reaction) ?: run {
+            Log.w(TAG, "Failed to encode reaction payload")
+            return
+        }
+
+        serviceScope.launch {
+            if (isPrivate) {
+                val targetPeerID = recipientPeerID
+                if (targetPeerID.isNullOrBlank()) {
+                    Log.w(TAG, "Cannot send private reaction without recipient peer ID")
+                    return@launch
+                }
+
+                if (!encryptionService.hasEstablishedSession(targetPeerID)) {
+                    Log.d(TAG, "🤝 No session with $targetPeerID, initiating handshake for private reaction")
+                    messageHandler.delegate?.initiateNoiseHandshake(targetPeerID)
+                    return@launch
+                }
+
+                try {
+                    val noisePayload = NoisePayload(
+                        type = NoisePayloadType.REACTION,
+                        data = encodedReaction
+                    )
+                    val encrypted = encryptionService.encrypt(noisePayload.encode(), targetPeerID)
+                    val packet = CirabitPacket(
+                        version = 1u,
+                        type = MessageType.NOISE_ENCRYPTED.value,
+                        senderID = hexStringToByteArray(myPeerID),
+                        recipientID = hexStringToByteArray(targetPeerID),
+                        timestamp = System.currentTimeMillis().toULong(),
+                        payload = encrypted,
+                        signature = null,
+                        ttl = MAX_TTL
+                    )
+                    val signedPacket = signPacketBeforeBroadcast(packet)
+                    connectionManager.broadcastPacket(RoutedPacket(signedPacket))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send private reaction to $targetPeerID: ${e.message}")
+                }
+                return@launch
+            }
+
+            val packet = CirabitPacket(
+                version = 1u,
+                type = MessageType.MSG_REACTION.value,
+                senderID = hexStringToByteArray(myPeerID),
+                recipientID = SpecialRecipients.BROADCAST,
+                timestamp = System.currentTimeMillis().toULong(),
+                payload = encodedReaction,
+                signature = null,
+                ttl = MAX_TTL
+            )
+
+            val signedPacket = signPacketBeforeBroadcast(packet)
+            connectionManager.broadcastPacket(RoutedPacket(signedPacket))
             try { gossipSyncManager.onPublicPacketSeen(signedPacket) } catch (_: Exception) { }
         }
     }
@@ -1419,6 +1525,7 @@ class BluetoothMeshService(private val context: Context) {
  */
 interface BluetoothMeshDelegate {
     fun didReceiveMessage(message: CirabitMessage)
+    fun didReceiveMessageReaction(reaction: MessageReaction)
     fun didUpdatePeerList(peers: List<String>)
     fun didReceiveChannelLeave(channel: String, fromPeer: String)
     fun didReceiveDeliveryAck(messageID: String, recipientPeerID: String)

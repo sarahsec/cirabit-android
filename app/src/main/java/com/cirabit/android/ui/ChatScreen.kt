@@ -59,6 +59,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val privateChatSheetPeer by viewModel.privateChatSheetPeer.collectAsStateWithLifecycle()
     val showVerificationSheet by viewModel.showVerificationSheet.collectAsStateWithLifecycle()
     val showSecurityVerificationSheet by viewModel.showSecurityVerificationSheet.collectAsStateWithLifecycle()
+    val messageReactions by viewModel.messageReactions.collectAsStateWithLifecycle()
 
     var messageText by remember { mutableStateOf(TextFieldValue("")) }
     var showPasswordPrompt by remember { mutableStateOf(false) }
@@ -69,6 +70,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var showUserSheet by remember { mutableStateOf(false) }
     var selectedUserForSheet by remember { mutableStateOf("") }
     var selectedMessageForSheet by remember { mutableStateOf<CirabitMessage?>(null) }
+    var showReactionPicker by remember { mutableStateOf(false) }
+    var selectedMessageForReaction by remember { mutableStateOf<CirabitMessage?>(null) }
     var showFullScreenImageViewer by remember { mutableStateOf(false) }
     var viewerImagePaths by remember { mutableStateOf(emptyList<String>()) }
     var initialViewerIndex by remember { mutableStateOf(0) }
@@ -132,7 +135,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
             // Messages area - takes up available space, will compress when keyboard appears
             MessagesList(
                 messages = displayMessages,
+                messageReactions = messageReactions,
                 currentUserNickname = nickname,
+                currentUserPeerID = viewModel.meshService.myPeerID,
                 meshService = viewModel.meshService,
                 modifier = Modifier.weight(1f),
                 forceScrollToBottom = forceScrollToBottom,
@@ -172,6 +177,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     selectedUserForSheet = baseName
                     selectedMessageForSheet = message
                     showUserSheet = true
+                },
+                onReactionClick = { message, emoji ->
+                    viewModel.toggleMessageReaction(message, emoji)
                 },
                 onCancelTransfer = { msg ->
                     viewModel.cancelMediaSend(msg.id)
@@ -336,6 +344,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
         },
         selectedUserForSheet = selectedUserForSheet,
         selectedMessageForSheet = selectedMessageForSheet,
+        onReactToMessage = { message ->
+            selectedMessageForReaction = message
+            showReactionPicker = true
+        },
         viewModel = viewModel,
         showVerificationSheet = showVerificationSheet,
         onVerificationSheetDismiss = viewModel::hideVerificationSheet,
@@ -343,6 +355,21 @@ fun ChatScreen(viewModel: ChatViewModel) {
         onSecurityVerificationSheetDismiss = viewModel::hideSecurityVerificationSheet,
         showMeshPeerListSheet = showMeshPeerListSheet,
         onMeshPeerListDismiss = viewModel::hideMeshPeerList,
+    )
+
+    MessageReactionPicker(
+        isVisible = showReactionPicker,
+        onDismiss = {
+            showReactionPicker = false
+            selectedMessageForReaction = null
+        },
+        onEmojiSelected = { emoji ->
+            selectedMessageForReaction?.let { message ->
+                viewModel.toggleMessageReaction(message, emoji)
+            }
+            showReactionPicker = false
+            selectedMessageForReaction = null
+        }
     )
 }
 
@@ -482,6 +509,7 @@ private fun ChatDialogs(
     onUserSheetDismiss: () -> Unit,
     selectedUserForSheet: String,
     selectedMessageForSheet: CirabitMessage?,
+    onReactToMessage: (CirabitMessage) -> Unit,
     viewModel: ChatViewModel,
     showVerificationSheet: Boolean,
     onVerificationSheetDismiss: () -> Unit,
@@ -541,6 +569,7 @@ private fun ChatDialogs(
             onDismiss = onUserSheetDismiss,
             targetNickname = selectedUserForSheet,
             selectedMessage = selectedMessageForSheet,
+            onReactToMessage = onReactToMessage,
             viewModel = viewModel
         )
     }
