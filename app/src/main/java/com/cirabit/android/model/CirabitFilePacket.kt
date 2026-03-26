@@ -1,5 +1,7 @@
 package com.cirabit.android.model
 
+import com.cirabit.android.util.AppConstants
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -82,14 +84,27 @@ data class CirabitFilePacket(
     }
 
     companion object {
-        fun decode(data: ByteArray): CirabitFilePacket? {
+        fun decode(
+            data: ByteArray,
+            maxIncomingBytes: Long = AppConstants.Media.MAX_INCOMING_FILE_BYTES
+        ): CirabitFilePacket? {
             android.util.Log.d("CirabitFilePacket", "🔄 Decoding ${data.size} bytes")
             try {
+                val envelopeLimit = maxIncomingBytes + AppConstants.Media.MAX_FILE_PACKET_OVERHEAD_BYTES
+                if (data.size.toLong() > envelopeLimit) {
+                    android.util.Log.w(
+                        "CirabitFilePacket",
+                        "❌ Rejecting file packet larger than limit: data=${data.size} bytes limit=$envelopeLimit"
+                    )
+                    return null
+                }
                 var off = 0
                 var name: String? = null
                 var size: Long? = null
                 var mime: String? = null
-                var contentBytes: ByteArray? = null
+                var totalContentBytes = 0L
+                var sawContentTlv = false
+                val contentBuffer = ByteArrayOutputStream()
                 while (off + 3 <= data.size) { // minimum TLV header size (type + 2 bytes length)
                     val t = TLVType.from(data[off].toUByte()) ?: return null
                     off += 1
@@ -105,28 +120,49 @@ data class CirabitFilePacket(
                         off += 2
                     }
                     if (len < 0 || off + len > data.size) return null
-                    val value = data.copyOfRange(off, off + len)
-                    off += len
                     when (t) {
-                        TLVType.FILE_NAME -> name = String(value, Charsets.UTF_8)
+                        TLVType.FILE_NAME -> name = String(data, off, len, Charsets.UTF_8)
                         TLVType.FILE_SIZE -> {
                             if (len != 4) return null
-                            val bb = ByteBuffer.wrap(value).order(ByteOrder.BIG_ENDIAN)
-                            size = bb.int.toLong()
-                        }
-                        TLVType.MIME_TYPE -> mime = String(value, Charsets.UTF_8)
-                        TLVType.CONTENT -> {
-                            // Expect a single CONTENT TLV
-                            if (contentBytes == null) contentBytes = value else {
-                                // If multiple CONTENT TLVs appear, concatenate for tolerance
-                                contentBytes = (contentBytes!! + value)
+                            val bb = ByteBuffer.wrap(data, off, len).order(ByteOrder.BIG_ENDIAN)
+                            val declaredSize = bb.int.toUInt().toLong()
+                            if (declaredSize > maxIncomingBytes) {
+                                android.util.Log.w(
+                                    "CirabitFilePacket",
+                                    "❌ Rejecting file packet with declared size=$declaredSize bytes (limit=$maxIncomingBytes)"
+                                )
+                                return null
                             }
+                            size = declaredSize
+                        }
+                        TLVType.MIME_TYPE -> mime = String(data, off, len, Charsets.UTF_8)
+                        TLVType.CONTENT -> {
+                            sawContentTlv = true
+                            val nextTotal = totalContentBytes + len.toLong()
+                            if (nextTotal > maxIncomingBytes) {
+                                android.util.Log.w(
+                                    "CirabitFilePacket",
+                                    "❌ Rejecting file packet content=$nextTotal bytes (limit=$maxIncomingBytes)"
+                                )
+                                return null
+                            }
+                            contentBuffer.write(data, off, len)
+                            totalContentBytes = nextTotal
                         }
                     }
+                    off += len
                 }
                 val n = name ?: return null
-                val c = contentBytes ?: return null
+                val c = contentBuffer.toByteArray()
+                if (!sawContentTlv) return null
                 val s = size ?: c.size.toLong()
+                if (s > maxIncomingBytes || c.size.toLong() > maxIncomingBytes) {
+                    android.util.Log.w(
+                        "CirabitFilePacket",
+                        "❌ Rejecting decoded file over limit: declared=$s content=${c.size}"
+                    )
+                    return null
+                }
                 val m = mime ?: "application/octet-stream"
                 val result = CirabitFilePacket(n, s, m, c)
                 android.util.Log.d("CirabitFilePacket", "✅ Decoded: name=$n, size=$s, mime=$m, content=${c.size} bytes")
@@ -138,4 +174,3 @@ data class CirabitFilePacket(
         }
     }
 }
-

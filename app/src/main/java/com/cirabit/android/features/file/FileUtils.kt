@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.cirabit.android.util.AppConstants
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -14,6 +15,12 @@ import java.util.*
 object FileUtils {
 
     private const val TAG = "FileUtils"
+
+    private fun hasEnoughDiskSpace(targetDir: File, bytesToWrite: Long): Boolean {
+        val available = runCatching { targetDir.usableSpace }.getOrDefault(0L)
+        val required = bytesToWrite + AppConstants.Media.MIN_FREE_STORAGE_BUFFER_BYTES
+        return available >= required
+    }
 
     /**
      * Save a file from URI to app's file directory with unique filename
@@ -195,6 +202,12 @@ object FileUtils {
         context: Context,
         file: com.cirabit.android.model.CirabitFilePacket
     ): String {
+        if (file.content.size.toLong() > AppConstants.Media.MAX_INCOMING_FILE_BYTES || file.fileSize > AppConstants.Media.MAX_INCOMING_FILE_BYTES) {
+            throw IllegalArgumentException(
+                "Incoming file exceeds limit (${file.fileSize} bytes, content=${file.content.size} bytes, max=${AppConstants.Media.MAX_INCOMING_FILE_BYTES})"
+            )
+        }
+
         val lowerMime = file.mimeType.lowercase()
         val isImage = lowerMime.startsWith("image/")
         // FIX: Use cacheDir instead of filesDir to prevent storage exhaustion attacks (Issue #592)
@@ -233,9 +246,16 @@ object FileUtils {
 
         return try {
             val out = java.io.File(dir, safeName)
+            if (!hasEnoughDiskSpace(dir, file.content.size.toLong())) {
+                throw IllegalStateException(
+                    "Insufficient disk space in ${dir.absolutePath}. " +
+                            "required=${file.content.size + AppConstants.Media.MIN_FREE_STORAGE_BUFFER_BYTES}, available=${dir.usableSpace}"
+                )
+            }
             out.outputStream().use { it.write(file.content) }
             out.absolutePath
-        } catch (_: Exception) {
+        } catch (primaryError: Exception) {
+            Log.w(TAG, "Primary incoming file save failed, trying fallback: ${primaryError.message}")
             // Fallback to cache dir with uniqueness
             try {
                 var fallback = safeName
@@ -252,10 +272,23 @@ object FileUtils {
                     idx2++
                 }
                 val out = java.io.File(context.cacheDir, fallback)
+                if (!hasEnoughDiskSpace(context.cacheDir, file.content.size.toLong())) {
+                    throw IllegalStateException(
+                        "Insufficient disk space in cache dir. " +
+                                "required=${file.content.size + AppConstants.Media.MIN_FREE_STORAGE_BUFFER_BYTES}, available=${context.cacheDir.usableSpace}"
+                    )
+                }
                 out.outputStream().use { it.write(file.content) }
                 out.absolutePath
-            } catch (_: Exception) {
+            } catch (fallbackError: Exception) {
+                Log.w(TAG, "Fallback incoming file save failed, trying temp file: ${fallbackError.message}")
                 val tmp = java.io.File.createTempFile(if (isImage) "img_" else "file_", if (isImage) ".jpg" else ".bin")
+                if (!hasEnoughDiskSpace(tmp.parentFile ?: context.cacheDir, file.content.size.toLong())) {
+                    throw IllegalStateException(
+                        "Insufficient disk space for temporary file. " +
+                                "required=${file.content.size + AppConstants.Media.MIN_FREE_STORAGE_BUFFER_BYTES}"
+                    )
+                }
                 tmp.writeBytes(file.content)
                 tmp.absolutePath
             }

@@ -5,6 +5,7 @@ import com.cirabit.android.protocol.MessageType
 import com.cirabit.android.model.FragmentPayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -178,6 +179,48 @@ class FragmentManagerTest {
         assertEquals("Type should match", originalPacket.type, reassembledPacket!!.type)
         assertEquals("Payload size should match", originalPacket.payload.size, reassembledPacket.payload.size)
         assertTrue("Payload content should match", originalPacket.payload.contentEquals(reassembledPacket.payload))
+    }
+
+    @Test
+    fun `oversized fragment set is dropped before reassembly`() {
+        val constrainedManager = FragmentManager(maxIncomingBytes = 64L)
+        val fragmentID = ByteArray(8) { 0x01 }
+
+        val fragmentA = CirabitPacket(
+            version = 1u,
+            type = MessageType.FRAGMENT.value,
+            senderID = hexStringToByteArray(senderID),
+            recipientID = hexStringToByteArray(recipientID),
+            timestamp = System.currentTimeMillis().toULong(),
+            payload = FragmentPayload(
+                fragmentID = fragmentID,
+                index = 0,
+                total = 2,
+                originalType = MessageType.FILE_TRANSFER.value,
+                data = ByteArray(40) { 0x11 }
+            ).encode(),
+            ttl = 7u
+        )
+
+        val fragmentB = CirabitPacket(
+            version = 1u,
+            type = MessageType.FRAGMENT.value,
+            senderID = hexStringToByteArray(senderID),
+            recipientID = hexStringToByteArray(recipientID),
+            timestamp = System.currentTimeMillis().toULong(),
+            payload = FragmentPayload(
+                fragmentID = fragmentID,
+                index = 1,
+                total = 2,
+                originalType = MessageType.FILE_TRANSFER.value,
+                data = ByteArray(40) { 0x22 }
+            ).encode(),
+            ttl = 7u
+        )
+
+        assertNull(constrainedManager.handleFragment(fragmentA))
+        assertNull(constrainedManager.handleFragment(fragmentB))
+        assertTrue(constrainedManager.getDebugInfo().contains("Active Fragment Sets: 0"))
     }
 
     private fun hexStringToByteArray(hexString: String): ByteArray {

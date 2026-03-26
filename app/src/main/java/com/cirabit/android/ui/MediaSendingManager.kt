@@ -5,6 +5,7 @@ import com.cirabit.android.mesh.BluetoothMeshService
 import com.cirabit.android.model.CirabitFilePacket
 import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.model.CirabitMessageType
+import com.cirabit.android.sync.FileMessageIdUtil
 import java.util.Date
 import java.security.MessageDigest
 
@@ -24,6 +25,12 @@ class MediaSendingManager(
     companion object {
         private const val TAG = "MediaSendingManager"
         private const val MAX_FILE_SIZE = com.cirabit.android.util.AppConstants.Media.MAX_FILE_SIZE_BYTES // 50MB limit
+
+        internal fun computeStableFileMessageID(
+            senderPeerID: String,
+            timestampMs: Long,
+            encodedFilePayload: ByteArray
+        ): String = FileMessageIdUtil.computeIdHex(senderPeerID, timestampMs, encodedFilePayload)
     }
 
     // Track in-flight transfer progress: transferId -> messageId and reverse
@@ -183,15 +190,17 @@ class MediaSendingManager(
 
         val transferId = sha256Hex(payload)
         val contentHash = sha256Hex(filePacket.content)
+        val timestampMs = System.currentTimeMillis()
+        val stableMessageID = computeStableFileMessageID(meshService.myPeerID, timestampMs, payload)
 
         Log.d(TAG, "📤 FILE_TRANSFER send (private): name='${filePacket.fileName}', size=${filePacket.fileSize}, mime='${filePacket.mimeType}', sha256=$contentHash, to=${toPeerID.take(8)} transferId=${transferId.take(16)}…")
 
         val msg = CirabitMessage(
-            id = java.util.UUID.randomUUID().toString().uppercase(), // Generate unique ID for each message
+            id = stableMessageID,
             sender = state.getNicknameValue() ?: "me",
             content = filePath,
             type = messageType,
-            timestamp = Date(),
+            timestamp = Date(timestampMs),
             isRelay = false,
             isPrivate = true,
             recipientNickname = try { meshService.getPeerNicknames()[toPeerID] } catch (_: Exception) { null },
@@ -212,7 +221,7 @@ class MediaSendingManager(
         )
         
         Log.d(TAG, "📤 Calling meshService.sendFilePrivate to $toPeerID")
-        meshService.sendFilePrivate(toPeerID, filePacket)
+        meshService.sendFilePrivate(toPeerID, filePacket, timestampMs)
         Log.d(TAG, "✅ File send completed successfully")
     }
 
@@ -234,15 +243,17 @@ class MediaSendingManager(
         
         val transferId = sha256Hex(payload)
         val contentHash = sha256Hex(filePacket.content)
+        val timestampMs = System.currentTimeMillis()
+        val stableMessageID = computeStableFileMessageID(meshService.myPeerID, timestampMs, payload)
         
         Log.d(TAG, "📤 FILE_TRANSFER send (broadcast): name='${filePacket.fileName}', size=${filePacket.fileSize}, mime='${filePacket.mimeType}', sha256=$contentHash, transferId=${transferId.take(16)}…")
 
         val message = CirabitMessage(
-            id = java.util.UUID.randomUUID().toString().uppercase(), // Generate unique ID for each message
+            id = stableMessageID,
             sender = state.getNicknameValue() ?: meshService.myPeerID,
             content = filePath,
             type = messageType,
-            timestamp = Date(),
+            timestamp = Date(timestampMs),
             isRelay = false,
             senderPeerID = meshService.myPeerID,
             channel = channelOrNull
@@ -266,7 +277,7 @@ class MediaSendingManager(
         )
         
         Log.d(TAG, "📤 Calling meshService.sendFileBroadcast")
-        meshService.sendFileBroadcast(filePacket)
+        meshService.sendFileBroadcast(filePacket, timestampMs)
         Log.d(TAG, "✅ File broadcast completed successfully")
     }
 

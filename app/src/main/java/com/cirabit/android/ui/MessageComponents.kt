@@ -308,36 +308,37 @@ fun MessageItem(
             )
 
             // Try to load the file packet from the path
-            val packet = try {
+            val fileMetadata = try {
                 val file = java.io.File(path)
                 if (file.exists()) {
-                    // Create a temporary CirabitFilePacket for display
-                    // In a real implementation, this would be stored with the packet metadata
-                    com.cirabit.android.model.CirabitFilePacket(
-                        fileName = file.name,
-                        fileSize = file.length(),
-                        mimeType = com.cirabit.android.features.file.FileUtils.getMimeTypeFromExtension(file.name),
-                        content = file.readBytes()
+                    Triple(
+                        file.name,
+                        file.length(),
+                        com.cirabit.android.features.file.FileUtils.getMimeTypeFromExtension(file.name)
                     )
                 } else null
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
                 Box {
-                    if (packet != null) {
+                    if (fileMetadata != null) {
+                        val (fileName, fileSize, mimeType) = fileMetadata
                         if (overrideProgress != null) {
                             // Show sending animation while in-flight
                             com.cirabit.android.ui.media.FileSendingAnimation(
-                                fileName = packet.fileName,
+                                fileName = fileName,
                                 progress = overrideProgress,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
                             // Static file display with open/save dialog
                             FileMessageItem(
-                                packet = packet,
+                                fileName = fileName,
+                                fileSize = fileSize,
+                                mimeType = mimeType,
+                                filePath = path,
                                 onFileClick = {
                                     // handled inside FileMessageItem via dialog
                                 }

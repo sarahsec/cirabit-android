@@ -3,8 +3,10 @@ package com.cirabit
 import com.cirabit.android.model.CirabitFilePacket
 import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.model.CirabitMessageType
+import com.cirabit.android.util.AppConstants
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -140,6 +142,26 @@ class FileTransferTest {
     }
 
     @Test
+    fun `decode zero-byte file packet should preserve empty content`() {
+        val originalPacket = CirabitFilePacket(
+            fileName = "empty.txt",
+            mimeType = "text/plain",
+            fileSize = 0,
+            content = ByteArray(0)
+        )
+
+        val encoded = originalPacket.encode()
+        assertNotNull(encoded)
+
+        val decoded = CirabitFilePacket.decode(encoded!!)
+        assertNotNull(decoded)
+        assertEquals("empty.txt", decoded!!.fileName)
+        assertEquals("text/plain", decoded.mimeType)
+        assertEquals(0L, decoded.fileSize)
+        assertEquals(0, decoded.content.size)
+    }
+
+    @Test
     fun `replaceFilePathInContent should correctly format content markers for different file types`() {
         // Given: Different file types
         val imageMessage = CirabitMessage(
@@ -261,5 +283,42 @@ class FileTransferTest {
         // Then: Resources should be cleaned up
         // This would verify temp files are deleted, progress tracking is cleared, etc.
         assert(cancelled)
+    }
+
+    @Test
+    fun `decode rejects declared file size above configured incoming limit`() {
+        val packet = CirabitFilePacket(
+            fileName = "oversized.bin",
+            mimeType = "application/octet-stream",
+            fileSize = 128,
+            content = ByteArray(16) { 0x01 }
+        )
+
+        val encoded = packet.encode()
+        assertNotNull(encoded)
+
+        val decoded = CirabitFilePacket.decode(encoded!!, maxIncomingBytes = 64)
+        assertNull(decoded)
+    }
+
+    @Test
+    fun `decode rejects content above configured incoming limit`() {
+        val packet = CirabitFilePacket(
+            fileName = "content.bin",
+            mimeType = "application/octet-stream",
+            fileSize = 80,
+            content = ByteArray(80) { 0x02 }
+        )
+
+        val encoded = packet.encode()
+        assertNotNull(encoded)
+
+        val decoded = CirabitFilePacket.decode(encoded!!, maxIncomingBytes = 64)
+        assertNull(decoded)
+    }
+
+    @Test
+    fun `incoming and outgoing file limits stay aligned`() {
+        assertEquals(AppConstants.Media.MAX_FILE_SIZE_BYTES, AppConstants.Media.MAX_INCOMING_FILE_BYTES)
     }
 }

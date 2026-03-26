@@ -3,7 +3,6 @@ package com.cirabit.android.ui.media
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +16,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -26,8 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.cirabit.android.R
 import com.cirabit.android.features.file.FileUtils
-import com.cirabit.android.model.CirabitFilePacket
-import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -35,12 +31,13 @@ import java.io.File
  */
 @Composable
 fun FileViewerDialog(
-    packet: CirabitFilePacket,
+    fileName: String,
+    fileSize: Long,
+    mimeType: String,
+    filePath: String,
     onDismiss: () -> Unit,
-    onSaveToDevice: (ByteArray, String) -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
 
     Dialog(onDismissRequest = onDismiss) {
         androidx.compose.material3.Card(
@@ -67,17 +64,17 @@ fun FileViewerDialog(
                     horizontalAlignment = Alignment.Start
                 ) {
                     Text(
-                        text = stringResource(R.string.file_viewer_name, packet.fileName),
+                        text = stringResource(R.string.file_viewer_name, fileName),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                     )
                     Text(
-                        text = stringResource(R.string.file_viewer_size, FileUtils.formatFileSize(packet.fileSize)),
+                        text = stringResource(R.string.file_viewer_size, FileUtils.formatFileSize(fileSize)),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = stringResource(R.string.file_viewer_type, packet.mimeType),
+                        text = stringResource(R.string.file_viewer_type, mimeType),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -93,16 +90,8 @@ fun FileViewerDialog(
                     // Open/Save button
                     Button(
                         onClick = {
-                            coroutineScope.launch {
-                                // Try to save to Downloads first
-                                try {
-                                    onSaveToDevice(packet.content, packet.fileName)
-                                    onDismiss()
-                                } catch (e: Exception) {
-                                    // If save fails, try to open directly
-                                    tryOpenFile(context, packet)
-                                    onDismiss()
-                                }
+                            if (tryOpenFile(context, filePath, mimeType)) {
+                                onDismiss()
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -127,37 +116,39 @@ fun FileViewerDialog(
             }
         }
     }
-} 
+}
 
 /**
  * Attempts to open a file using system viewers or save to device
  */
-private fun tryOpenFile(context: Context, packet: CirabitFilePacket) {
+private fun tryOpenFile(context: Context, filePath: String, mimeType: String): Boolean {
     try {
-        // First try to save to temp file and open
-        val tempFile = File.createTempFile("cirabit_", ".${packet.fileName.substringAfterLast(".")}", context.cacheDir)
-        tempFile.writeBytes(packet.content)
-        tempFile.deleteOnExit()
+        val targetFile = File(filePath)
+        if (!targetFile.exists()) {
+            return false
+        }
 
         val uri = androidx.core.content.FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
-            tempFile
+            targetFile
         )
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, packet.mimeType)
+            setDataAndType(uri, mimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
         try {
             context.startActivity(intent)
+            return true
         } catch (e: ActivityNotFoundException) {
             // No app can handle this file type - just show a message
-            // In a real app, you'd show a toast or snackbar
+            return false
         }
     } catch (e: Exception) {
         // Handle any errors gracefully
+        return false
     }
 }
