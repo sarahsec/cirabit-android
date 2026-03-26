@@ -31,7 +31,17 @@ internal class PrivateReactionQueueManager(
     suspend fun sendOrQueue(peerID: String, reaction: MessageReaction): SendResult {
         if (!hasSession(peerID)) {
             enqueue(peerID, reaction, nowMs())
+            // Close TOCTOU window: session may become ready right after enqueue.
+            if (hasSession(peerID)) {
+                flush(peerID)
+                return if (pendingCount(peerID) == 0) SendResult.SENT else SendResult.QUEUED
+            }
             initiateHandshake(peerID)
+            // Handshake may complete synchronously in tests/some implementations.
+            if (hasSession(peerID)) {
+                flush(peerID)
+                return if (pendingCount(peerID) == 0) SendResult.SENT else SendResult.QUEUED
+            }
             return SendResult.QUEUED
         }
 

@@ -60,6 +60,34 @@ class PrivateReactionQueueTest {
     }
 
     @Test
+    fun privateReaction_flushedWhenSessionTurnsReadyRightAfterQueue() = runBlocking {
+        var hasSessionChecks = 0
+        val handshakeRequests = mutableListOf<String>()
+        val sent = mutableListOf<Pair<String, MessageReaction>>()
+        val manager = PrivateReactionQueueManager(
+            hasSession = {
+                hasSessionChecks += 1
+                hasSessionChecks > 1 // false on first check, true right after enqueue
+            },
+            initiateHandshake = { peerID -> handshakeRequests += peerID },
+            sendReaction = { peerID, reaction ->
+                sent += peerID to reaction
+                true
+            }
+        )
+        val reaction = MessageReaction("msg-race", "🔥", "0011223344556677", false)
+
+        val result = manager.sendOrQueue("AABBCCDD", reaction)
+
+        assertEquals(PrivateReactionQueueManager.SendResult.SENT, result)
+        assertEquals(1, sent.size)
+        assertEquals("AABBCCDD", sent.first().first)
+        assertEquals(reaction, sent.first().second)
+        assertEquals(0, manager.pendingCount("AABBCCDD"))
+        assertTrue("Handshake should not be needed when session is already ready", handshakeRequests.isEmpty())
+    }
+
+    @Test
     fun privateReaction_droppedAfterTTL() = runBlocking {
         var hasSession = true
         var nowMs = 200_000L
