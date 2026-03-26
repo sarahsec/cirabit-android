@@ -212,7 +212,7 @@ class LocationChannelManager private constructor(private val context: Context) {
      * Select a channel
      */
     fun select(channel: ChannelID) {
-        Log.d(TAG, "Selected channel: ${sanitizeForSingleLineLog(channel.displayName)}")
+        Log.d(TAG, selectedChannelLogMessage(channel))
         // Use synchronous set to avoid race with background recomputation
         _selectedChannel.value = channel
         saveChannelSelection(channel)
@@ -586,10 +586,9 @@ class LocationChannelManager private constructor(private val context: Context) {
     }
 }
 
-internal fun sanitizeForSingleLineLog(value: String): String {
-    return value
-        .replace('\r', ' ')
-        .replace('\n', ' ')
-        .replace('\u2028', ' ')
-        .replace('\u2029', ' ')
+internal fun selectedChannelLogMessage(channel: ChannelID): String {
+    return when (channel) {
+        is ChannelID.Mesh -> "Selected channel: mesh"
+        is ChannelID.Location -> "Selected channel: location/${channel.channel.level.name.lowercase(Locale.US)}"
+    }
 }

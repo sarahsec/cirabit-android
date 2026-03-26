@@ -7,24 +7,27 @@ import org.junit.Test
 class LocationChannelManagerLogSanitizationTest {
 
     @Test
-    fun sanitizeForSingleLineLog_replacesLineBreakCharacters() {
-        val input = "Mesh\nAdmin\rTeam\u2028Area\u2029Room"
+    fun selectedChannelLogMessage_mesh_usesStaticSafeLabel() {
+        val message = selectedChannelLogMessage(ChannelID.Mesh)
 
-        val sanitized = sanitizeForSingleLineLog(input)
-
-        assertEquals("Mesh Admin Team Area Room", sanitized)
-        assertFalse(sanitized.contains('\n'))
-        assertFalse(sanitized.contains('\r'))
-        assertFalse(sanitized.contains('\u2028'))
-        assertFalse(sanitized.contains('\u2029'))
+        assertEquals("Selected channel: mesh", message)
     }
 
     @Test
-    fun sanitizeForSingleLineLog_preservesSafeText() {
-        val input = "Building - abc123"
+    fun selectedChannelLogMessage_location_doesNotIncludeGeohashOrLineBreaks() {
+        val injectedGeohash = "abc123\nfake-log-entry"
+        val channel = ChannelID.Location(
+            GeohashChannel(
+                level = GeohashChannelLevel.CITY,
+                geohash = injectedGeohash,
+            ),
+        )
 
-        val sanitized = sanitizeForSingleLineLog(input)
+        val message = selectedChannelLogMessage(channel)
 
-        assertEquals(input, sanitized)
+        assertEquals("Selected channel: location/city", message)
+        assertFalse(message.contains("abc123"))
+        assertFalse(message.contains('\n'))
+        assertFalse(message.contains('\r'))
     }
 }
