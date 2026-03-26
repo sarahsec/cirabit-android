@@ -103,6 +103,7 @@ data class CirabitFilePacket(
                 var size: Long? = null
                 var mime: String? = null
                 var totalContentBytes = 0L
+                var sawContentTlv = false
                 val contentBuffer = ByteArrayOutputStream()
                 while (off + 3 <= data.size) { // minimum TLV header size (type + 2 bytes length)
                     val t = TLVType.from(data[off].toUByte()) ?: return null
@@ -136,6 +137,7 @@ data class CirabitFilePacket(
                         }
                         TLVType.MIME_TYPE -> mime = String(data, off, len, Charsets.UTF_8)
                         TLVType.CONTENT -> {
+                            sawContentTlv = true
                             val nextTotal = totalContentBytes + len.toLong()
                             if (nextTotal > maxIncomingBytes) {
                                 android.util.Log.w(
@@ -152,7 +154,7 @@ data class CirabitFilePacket(
                 }
                 val n = name ?: return null
                 val c = contentBuffer.toByteArray()
-                if (c.isEmpty()) return null
+                if (!sawContentTlv) return null
                 val s = size ?: c.size.toLong()
                 if (s > maxIncomingBytes || c.size.toLong() > maxIncomingBytes) {
                     android.util.Log.w(

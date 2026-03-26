@@ -142,6 +142,26 @@ class FileTransferTest {
     }
 
     @Test
+    fun `decode zero-byte file packet should preserve empty content`() {
+        val originalPacket = CirabitFilePacket(
+            fileName = "empty.txt",
+            mimeType = "text/plain",
+            fileSize = 0,
+            content = ByteArray(0)
+        )
+
+        val encoded = originalPacket.encode()
+        assertNotNull(encoded)
+
+        val decoded = CirabitFilePacket.decode(encoded!!)
+        assertNotNull(decoded)
+        assertEquals("empty.txt", decoded!!.fileName)
+        assertEquals("text/plain", decoded.mimeType)
+        assertEquals(0L, decoded.fileSize)
+        assertEquals(0, decoded.content.size)
+    }
+
+    @Test
     fun `replaceFilePathInContent should correctly format content markers for different file types`() {
         // Given: Different file types
         val imageMessage = CirabitMessage(
