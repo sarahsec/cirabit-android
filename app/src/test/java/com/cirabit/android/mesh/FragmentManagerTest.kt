@@ -223,6 +223,79 @@ class FragmentManagerTest {
         assertTrue(constrainedManager.getDebugInfo().contains("Active Fragment Sets: 0"))
     }
 
+    @Test
+    fun `new fragment set is rejected when active set cap reached`() {
+        val constrainedManager = FragmentManager(maxActiveFragmentSets = 1, maxIncomingBytes = 1024L)
+
+        val setAFragment = createFragmentPacket(
+            fragmentID = ByteArray(8) { 0x0A },
+            index = 0,
+            total = 2,
+            dataSize = 20
+        )
+        val setBFragment = createFragmentPacket(
+            fragmentID = ByteArray(8) { 0x0B },
+            index = 0,
+            total = 2,
+            dataSize = 20
+        )
+
+        assertNull(constrainedManager.handleFragment(setAFragment))
+        assertNull(constrainedManager.handleFragment(setBFragment))
+        val debugInfo = constrainedManager.getDebugInfo()
+        assertTrue(debugInfo.contains("Active Fragment Sets: 1"))
+    }
+
+    @Test
+    fun `fragment is rejected when global buffered bytes cap is exceeded`() {
+        val constrainedManager = FragmentManager(
+            maxIncomingBytes = 1024L,
+            maxGlobalBufferedBytes = 60L
+        )
+
+        val setAFragment = createFragmentPacket(
+            fragmentID = ByteArray(8) { 0x1A },
+            index = 0,
+            total = 2,
+            dataSize = 40
+        )
+        val setBFragment = createFragmentPacket(
+            fragmentID = ByteArray(8) { 0x1B },
+            index = 0,
+            total = 2,
+            dataSize = 40
+        )
+
+        assertNull(constrainedManager.handleFragment(setAFragment))
+        assertNull(constrainedManager.handleFragment(setBFragment))
+        val debugInfo = constrainedManager.getDebugInfo()
+        assertTrue(debugInfo.contains("Active Fragment Sets: 1"))
+        assertTrue(debugInfo.contains("Global Buffered Bytes: 40"))
+    }
+
+    private fun createFragmentPacket(
+        fragmentID: ByteArray,
+        index: Int,
+        total: Int,
+        dataSize: Int
+    ): CirabitPacket {
+        return CirabitPacket(
+            version = 1u,
+            type = MessageType.FRAGMENT.value,
+            senderID = hexStringToByteArray(senderID),
+            recipientID = hexStringToByteArray(recipientID),
+            timestamp = System.currentTimeMillis().toULong(),
+            payload = FragmentPayload(
+                fragmentID = fragmentID,
+                index = index,
+                total = total,
+                originalType = MessageType.FILE_TRANSFER.value,
+                data = ByteArray(dataSize) { 0x33 }
+            ).encode(),
+            ttl = 7u
+        )
+    }
+
     private fun hexStringToByteArray(hexString: String): ByteArray {
         val result = ByteArray(8)
         for (i in 0 until 8) {

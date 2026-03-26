@@ -453,9 +453,17 @@ object BinaryProtocol {
                 buffer.getShort().toUShort().toUInt()  // 2 bytes for v1, convert to UInt
             }
 
+            if (payloadLength > com.cirabit.android.util.AppConstants.Protocol.MAX_PAYLOAD_LENGTH.toUInt()) {
+                Log.w(
+                    "BinaryProtocol",
+                    "Payload length ${payloadLength} exceeds maximum allowed (${com.cirabit.android.util.AppConstants.Protocol.MAX_PAYLOAD_LENGTH})"
+                )
+                return null
+            }
+
             // Calculate expected total size
-            var expectedSize = headerSize + SENDER_ID_SIZE + payloadLength.toInt()
-            if (hasRecipient) expectedSize += RECIPIENT_ID_SIZE
+            var expectedSize = headerSize.toLong() + SENDER_ID_SIZE.toLong() + payloadLength.toLong()
+            if (hasRecipient) expectedSize += RECIPIENT_ID_SIZE.toLong()
             var routeCount = 0
             if (hasRoute) {
                 // Peek count (1 byte) without consuming buffer for now
@@ -470,11 +478,11 @@ object BinaryProtocol {
                 if (raw.size >= routeOffset + 1) {
                     routeCount = raw[routeOffset].toUByte().toInt()
                 }
-                expectedSize += 1 + (routeCount * SENDER_ID_SIZE)
+                expectedSize += 1L + (routeCount.toLong() * SENDER_ID_SIZE.toLong())
             }
-            if (hasSignature) expectedSize += SIGNATURE_SIZE
+            if (hasSignature) expectedSize += SIGNATURE_SIZE.toLong()
 
-            if (raw.size < expectedSize) return null
+            if (raw.size.toLong() < expectedSize) return null
             
             // SenderID
             val senderID = ByteArray(SENDER_ID_SIZE)

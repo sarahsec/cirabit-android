@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.cirabit.android.model.MessageReaction
+import com.cirabit.android.util.AppConstants
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Random
@@ -1121,6 +1122,30 @@ class BinaryProtocolTest {
         val result = BinaryProtocol.decode(padded)
 
         assertNull("v2 compressed with payloadLength < 4 must return null", result)
+    }
+
+    @Test
+    fun `v2 packet payload length above max is rejected`() {
+        val overLimitPayloadLength = AppConstants.Protocol.MAX_PAYLOAD_LENGTH + 1
+        val buffer = ByteBuffer.allocate(16 + 8 + overLimitPayloadLength).apply { order(ByteOrder.BIG_ENDIAN) }
+
+        buffer.put(2.toByte()) // version
+        buffer.put(MessageType.MESSAGE.value.toByte()) // type
+        buffer.put(5.toByte()) // ttl
+        buffer.putLong(fixedTimestamp.toLong()) // timestamp
+        buffer.put(0.toByte()) // flags
+        buffer.putInt(overLimitPayloadLength) // payload length
+        buffer.put(hexToBytes(senderHex)) // sender
+        buffer.put(ByteArray(overLimitPayloadLength) { 0x55.toByte() }) // payload bytes
+
+        val raw = ByteArray(buffer.position())
+        buffer.rewind()
+        buffer.get(raw)
+
+        val padded = MessagePadding.pad(raw, MessagePadding.optimalBlockSize(raw.size))
+        val result = BinaryProtocol.decode(padded)
+
+        assertNull("payload above max must be rejected", result)
     }
 
     private fun hexToBytes(hex: String): ByteArray {
