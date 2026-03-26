@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Overrode AGP transitive `org.bitbucket.b_c:jose4j` to `0.9.6` to mitigate CVE-2024-29371 (JWE decompression DoS).
 - Overrode AGP transitive `org.apache.commons:commons-compress` to `1.26.0` to mitigate CVE-2024-26308 (Pack200 decompression OOM/DoS).
 - Migrated app runtime Bouncy Castle provider from `org.bouncycastle:bcprov-jdk15on:1.70` to `org.bouncycastle:bcprov-jdk15to18:1.78.1` to address the RSA-handshake timing-leak advisory affecting pre-`1.78` releases.
+- Replaced implicit narrowing compound assignments in `Curve448` carry propagation with explicit casts to avoid lossy-conversion ambiguity (`java/implicit-cast-in-compound-assignment`).
 
 ## [1.4.0] - 2025-10-15
 ### Fixed
