@@ -48,6 +48,34 @@ class ChatViewModel(
 
     companion object {
         private const val TAG = "ChatViewModel"
+
+        internal fun applyReactionToState(
+            current: Map<String, Map<String, Set<String>>>,
+            reaction: MessageReaction
+        ): Map<String, Map<String, Set<String>>> {
+            val perMessage = (current[reaction.messageID] ?: emptyMap()).toMutableMap()
+            val users = (perMessage[reaction.emoji] ?: emptySet()).toMutableSet()
+
+            if (reaction.isRemoval) {
+                users.remove(reaction.reactorPeerID)
+            } else {
+                users.add(reaction.reactorPeerID)
+            }
+
+            if (users.isEmpty()) {
+                perMessage.remove(reaction.emoji)
+            } else {
+                perMessage[reaction.emoji] = users
+            }
+
+            val updated = current.toMutableMap()
+            if (perMessage.isEmpty()) {
+                updated.remove(reaction.messageID)
+            } else {
+                updated[reaction.messageID] = perMessage
+            }
+            return updated
+        }
     }
 
     fun sendVoiceNote(toPeerIDOrNull: String?, channelOrNull: String?, filePath: String) {
@@ -645,30 +673,7 @@ class ChatViewModel(
     }
 
     private fun applyReactionUpdate(reaction: MessageReaction) {
-        _messageReactions.update { current ->
-            val perMessage = (current[reaction.messageID] ?: emptyMap()).toMutableMap()
-            val users = (perMessage[reaction.emoji] ?: emptySet()).toMutableSet()
-
-            if (reaction.isRemoval) {
-                users.remove(reaction.reactorPeerID)
-            } else {
-                users.add(reaction.reactorPeerID)
-            }
-
-            if (users.isEmpty()) {
-                perMessage.remove(reaction.emoji)
-            } else {
-                perMessage[reaction.emoji] = users
-            }
-
-            val updated = current.toMutableMap()
-            if (perMessage.isEmpty()) {
-                updated.remove(reaction.messageID)
-            } else {
-                updated[reaction.messageID] = perMessage
-            }
-            updated
-        }
+        _messageReactions.update { current -> applyReactionToState(current, reaction) }
     }
 
     private fun computePublicMessageID(content: String, timestampMs: Long): String {

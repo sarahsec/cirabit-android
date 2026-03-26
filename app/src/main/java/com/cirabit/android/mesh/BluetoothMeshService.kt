@@ -70,6 +70,16 @@ class BluetoothMeshService(private val context: Context) {
     
     // Delegate for message callbacks (maintains same interface)
     var delegate: BluetoothMeshDelegate? = null
+
+    private val privateReactionQueue = PrivateReactionQueueManager(
+        hasSession = { peerID -> encryptionService.hasEstablishedSession(peerID) },
+        initiateHandshake = { peerID -> messageHandler.delegate?.initiateNoiseHandshake(peerID) },
+        sendReaction = { peerID, reaction -> sendPrivateReactionPacket(peerID, reaction) },
+        onReactionDropped = { peerID, reaction, reason ->
+            Log.w(TAG, "Dropped pending private reaction for ${peerID.take(8)}... (${reaction.emoji} -> ${reaction.messageID}): $reason")
+            delegate?.didDropPendingReaction(reaction, peerID, reason)
+        }
+    )
     
     // Coroutines
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -203,6 +213,11 @@ class BluetoothMeshService(private val context: Context) {
                 // Send announcement and cached messages after key exchange
                 serviceScope.launch {
                     Log.d(TAG, "Key exchange completed with $peerID; sending follow-ups")
+                    try {
+                        privateReactionQueue.flush(peerID)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to flush pending private reactions for $peerID: ${e.message}")
+                    }
                     delay(100)
                     sendAnnouncementToPeer(peerID)
                     
@@ -769,10 +784,6 @@ class BluetoothMeshService(private val context: Context) {
             reactorPeerID = myPeerID,
             isRemoval = isRemoval
         )
-        val encodedReaction = MessageReactionCodec.encode(reaction) ?: run {
-            Log.w(TAG, "Failed to encode reaction payload")
-            return
-        }
 
         serviceScope.launch {
             if (isPrivate) {
@@ -782,33 +793,19 @@ class BluetoothMeshService(private val context: Context) {
                     return@launch
                 }
 
-                if (!encryptionService.hasEstablishedSession(targetPeerID)) {
-                    Log.d(TAG, "🤝 No session with $targetPeerID, initiating handshake for private reaction")
-                    messageHandler.delegate?.initiateNoiseHandshake(targetPeerID)
-                    return@launch
-                }
-
                 try {
-                    val noisePayload = NoisePayload(
-                        type = NoisePayloadType.REACTION,
-                        data = encodedReaction
-                    )
-                    val encrypted = encryptionService.encrypt(noisePayload.encode(), targetPeerID)
-                    val packet = CirabitPacket(
-                        version = 1u,
-                        type = MessageType.NOISE_ENCRYPTED.value,
-                        senderID = hexStringToByteArray(myPeerID),
-                        recipientID = hexStringToByteArray(targetPeerID),
-                        timestamp = System.currentTimeMillis().toULong(),
-                        payload = encrypted,
-                        signature = null,
-                        ttl = MAX_TTL
-                    )
-                    val signedPacket = signPacketBeforeBroadcast(packet)
-                    connectionManager.broadcastPacket(RoutedPacket(signedPacket))
+                    val result = privateReactionQueue.sendOrQueue(targetPeerID, reaction)
+                    if (result == PrivateReactionQueueManager.SendResult.QUEUED) {
+                        Log.d(TAG, "⏳ Queued private reaction for $targetPeerID while waiting for Noise session")
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to send private reaction to $targetPeerID: ${e.message}")
                 }
+                return@launch
+            }
+
+            val encodedReaction = MessageReactionCodec.encode(reaction) ?: run {
+                Log.w(TAG, "Failed to encode reaction payload")
                 return@launch
             }
 
@@ -829,10 +826,43 @@ class BluetoothMeshService(private val context: Context) {
         }
     }
 
+    private suspend fun sendPrivateReactionPacket(
+        targetPeerID: String,
+        reaction: MessageReaction
+    ): Boolean {
+        return try {
+            val encodedReaction = MessageReactionCodec.encode(reaction) ?: run {
+                Log.w(TAG, "Failed to encode private reaction payload")
+                return false
+            }
+            val noisePayload = NoisePayload(
+                type = NoisePayloadType.REACTION,
+                data = encodedReaction
+            )
+            val encrypted = encryptionService.encrypt(noisePayload.encode(), targetPeerID)
+            val packet = CirabitPacket(
+                version = 1u,
+                type = MessageType.NOISE_ENCRYPTED.value,
+                senderID = hexStringToByteArray(myPeerID),
+                recipientID = hexStringToByteArray(targetPeerID),
+                timestamp = System.currentTimeMillis().toULong(),
+                payload = encrypted,
+                signature = null,
+                ttl = MAX_TTL
+            )
+            val signedPacket = signPacketBeforeBroadcast(packet)
+            connectionManager.broadcastPacket(RoutedPacket(signedPacket))
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send private reaction packet to $targetPeerID: ${e.message}")
+            false
+        }
+    }
+
     /**
      * Send a file over mesh as a broadcast MESSAGE (public mesh timeline/channels).
      */
-    fun sendFileBroadcast(file: com.cirabit.android.model.CirabitFilePacket) {
+    fun sendFileBroadcast(file: com.cirabit.android.model.CirabitFilePacket, timestampMs: Long? = null) {
         try {
             Log.d(TAG, "📤 sendFileBroadcast: name=${file.fileName}, size=${file.fileSize}")
             val payload = file.encode()
@@ -847,7 +877,7 @@ class BluetoothMeshService(private val context: Context) {
                 type = MessageType.FILE_TRANSFER.value,
                 senderID = hexStringToByteArray(myPeerID),
                 recipientID = SpecialRecipients.BROADCAST,
-                timestamp = System.currentTimeMillis().toULong(),
+                timestamp = (timestampMs ?: System.currentTimeMillis()).toULong(),
                 payload = payload,
                 signature = null,
                 ttl = MAX_TTL
@@ -867,7 +897,11 @@ class BluetoothMeshService(private val context: Context) {
     /**
      * Send a file as an encrypted private message using Noise protocol
      */
-    fun sendFilePrivate(recipientPeerID: String, file: com.cirabit.android.model.CirabitFilePacket) {
+    fun sendFilePrivate(
+        recipientPeerID: String,
+        file: com.cirabit.android.model.CirabitFilePacket,
+        timestampMs: Long? = null
+    ) {
         try {
             Log.d(TAG, "📤 sendFilePrivate (ENCRYPTED): to=$recipientPeerID, name=${file.fileName}, size=${file.fileSize}")
             
@@ -903,7 +937,7 @@ class BluetoothMeshService(private val context: Context) {
                             type = MessageType.NOISE_ENCRYPTED.value,
                             senderID = hexStringToByteArray(myPeerID),
                             recipientID = hexStringToByteArray(recipientPeerID),
-                            timestamp = System.currentTimeMillis().toULong(),
+                            timestamp = (timestampMs ?: System.currentTimeMillis()).toULong(),
                             payload = encrypted,
                             signature = null,
                             ttl = com.cirabit.android.util.AppConstants.MESSAGE_TTL_HOPS
@@ -1526,6 +1560,7 @@ class BluetoothMeshService(private val context: Context) {
 interface BluetoothMeshDelegate {
     fun didReceiveMessage(message: CirabitMessage)
     fun didReceiveMessageReaction(reaction: MessageReaction)
+    fun didDropPendingReaction(reaction: MessageReaction, recipientPeerID: String, reason: String) {}
     fun didUpdatePeerList(peers: List<String>)
     fun didReceiveChannelLeave(channel: String, fromPeer: String)
     fun didReceiveDeliveryAck(messageID: String, recipientPeerID: String)

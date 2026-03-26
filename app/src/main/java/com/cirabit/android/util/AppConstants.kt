@@ -123,6 +123,11 @@ object AppConstants {
         const val PERMISSION_FORCE_FINISH: String = "com.cirabit.android.permission.FORCE_FINISH"
     }
 
+    object Reactions {
+        const val PRIVATE_PENDING_MAX_PER_PEER: Int = 20
+        const val PRIVATE_PENDING_TTL_MS: Long = 60_000L
+    }
+
     object Media {
         const val MAX_FILE_SIZE_BYTES: Long = 50L * 1024 * 1024
         const val MAX_INCOMING_FILE_BYTES: Long = MAX_FILE_SIZE_BYTES

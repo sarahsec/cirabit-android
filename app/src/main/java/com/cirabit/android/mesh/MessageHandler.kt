@@ -8,6 +8,7 @@ import com.cirabit.android.model.RoutedPacket
 import com.cirabit.android.protocol.CirabitPacket
 import com.cirabit.android.protocol.MessageType
 import com.cirabit.android.protocol.MessageReactionCodec
+import com.cirabit.android.sync.FileMessageIdUtil
 import com.cirabit.android.sync.PacketIdUtil
 import com.cirabit.android.util.toHexString
 import kotlinx.coroutines.*
@@ -116,17 +117,21 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                     if (isOversizedIncomingFilePayload(peerID, noisePayload.data.size, "noise")) {
                         return
                     }
-                    // Handle encrypted file transfer; generate unique message ID
+                    // Handle encrypted file transfer with deterministic message ID.
                     val file = com.cirabit.android.model.CirabitFilePacket.decode(noisePayload.data)
                     if (file != null) {
                         if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "noise")) {
                             return
                         }
+                        val stableMessageID = FileMessageIdUtil.computeIdHex(
+                            senderPeerID = peerID,
+                            timestampMs = packet.timestamp.toLong(),
+                            encodedFilePayload = noisePayload.data
+                        )
                         Log.d(TAG, "🔓 Decrypted encrypted file from $peerID: name='${file.fileName}', size=${file.fileSize}, mime='${file.mimeType}'")
-                        val uniqueMsgId = java.util.UUID.randomUUID().toString().uppercase()
                         val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                         val message = CirabitMessage(
-                            id = uniqueMsgId,
+                            id = stableMessageID,
                             sender = delegate?.getPeerNickname(peerID) ?: "Unknown",
                             content = savedPath,
                             type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
@@ -137,11 +142,11 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                             senderPeerID = peerID
                         )
 
-                        Log.d(TAG, "📄 Saved encrypted incoming file to $savedPath (msgId=$uniqueMsgId)")
+                        Log.d(TAG, "📄 Saved encrypted incoming file to $savedPath (msgId=$stableMessageID)")
                         delegate?.onMessageReceived(message)
 
-                        // Send delivery ACK with generated message ID
-                        sendDeliveryAck(uniqueMsgId, peerID)
+                        // Send delivery ACK with deterministic message ID
+                        sendDeliveryAck(stableMessageID, peerID)
                     } else {
                         Log.w(TAG, "⚠️ Failed to decode encrypted file transfer from $peerID")
                     }
@@ -457,6 +462,11 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
             }
             val file = com.cirabit.android.model.CirabitFilePacket.decode(packet.payload)
             if (file != null) {
+                val stableFileMessageID = FileMessageIdUtil.computeIdHex(
+                    senderPeerID = peerID,
+                    timestampMs = packet.timestamp.toLong(),
+                    encodedFilePayload = packet.payload
+                )
                 if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "broadcast")) {
                     return
                 }
@@ -465,7 +475,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                 }
                 val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                 val message = CirabitMessage(
-                    id = stableMessageID,
+                    id = stableFileMessageID,
                     sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                     content = savedPath,
                     type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
@@ -512,6 +522,11 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
             }
             val file = com.cirabit.android.model.CirabitFilePacket.decode(packet.payload)
             if (file != null) {
+                val stableFileMessageID = FileMessageIdUtil.computeIdHex(
+                    senderPeerID = peerID,
+                    timestampMs = packet.timestamp.toLong(),
+                    encodedFilePayload = packet.payload
+                )
                 if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "private")) {
                     return
                 }
@@ -520,7 +535,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                 }
                 val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                 val message = CirabitMessage(
-                    id = stableMessageID,
+                    id = stableFileMessageID,
                     sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                     content = savedPath,
                     type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
