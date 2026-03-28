@@ -8,7 +8,12 @@
 ### Changed
 - Tapping update settings now opens the official download page:
   https://cirabit.smaia.dev/download
+- Updated deprecated Android APIs for better compatibility with newer SDKs:
+  - Foreground service stop behavior
+  - BLE characteristic notify/write calls
+  - Compose clipboard/back-icon/tab-indicator usage
 
 ### Fixed
 - Improved update-check reliability with fallback endpoint support.
 - Prevented false update-check errors when UI coroutines are cancelled.
+- Replaced deprecated one-shot location request flow and removed unchecked cast warnings in runtime parsers.

@@ -2,9 +2,6 @@ package com.cirabit.android.utils
 
 import android.content.Context
 import android.content.res.Configuration
-import android.util.DisplayMetrics
-import android.view.WindowManager
-import androidx.core.content.getSystemService
 import kotlin.math.sqrt
 
 object DeviceUtils {
@@ -14,9 +11,7 @@ object DeviceUtils {
      * Uses multiple criteria to accurately detect tablets vs phones.
      */
     fun isTablet(context: Context): Boolean {
-        val windowManager = context.getSystemService<WindowManager>()
-        val displayMetrics = DisplayMetrics()
-        windowManager?.defaultDisplay?.getMetrics(displayMetrics)
+        val displayMetrics = context.resources.displayMetrics
 
         // Calculate screen size in inches
         val widthInches = displayMetrics.widthPixels / displayMetrics.xdpi

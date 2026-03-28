@@ -149,7 +149,7 @@ class MeshForegroundService : Service() {
                 // Stop FGS and mesh cleanly
                 try { meshService?.stopServices() } catch (_: Exception) { }
                 try { MeshServiceHolder.clear() } catch (_: Exception) { }
-                try { stopForeground(true) } catch (_: Exception) { }
+                try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
                 notificationManager.cancel(NOTIFICATION_ID)
                 isInForeground = false
                 stopSelf()
@@ -159,7 +159,7 @@ class MeshForegroundService : Service() {
                 isShuttingDown = true
                 updateJob?.cancel()
                 updateJob = null
-                try { stopForeground(true) } catch (_: Exception) { }
+                try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
                 notificationManager.cancel(NOTIFICATION_ID)
                 isInForeground = false
                 // Fully stop all background activity, stop Tor (without changing setting), then kill the app
@@ -168,7 +168,7 @@ class MeshForegroundService : Service() {
                     mesh = meshService,
                     notificationManager = notificationManager,
                     stopForeground = {
-                        try { stopForeground(true) } catch (_: Exception) { }
+                        try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
                         isInForeground = false
                     },
                     stopService = { stopSelf() }
@@ -211,7 +211,7 @@ class MeshForegroundService : Service() {
                     } else {
                         // If disabled or perms missing, ensure we are not in foreground and clear notif
                         if (isInForeground) {
-                            try { stopForeground(false) } catch (_: Exception) { }
+                            try { stopForeground(Service.STOP_FOREGROUND_DETACH) } catch (_: Exception) { }
                             isInForeground = false
                         }
                         notificationManager.cancel(NOTIFICATION_ID)
@@ -247,7 +247,7 @@ class MeshForegroundService : Service() {
             notificationManager.notify(NOTIFICATION_ID, notification)
         } else if (force) {
             // If disabled and forced, make sure to remove any prior foreground state
-            try { stopForeground(false) } catch (_: Exception) { }
+            try { stopForeground(Service.STOP_FOREGROUND_DETACH) } catch (_: Exception) { }
             notificationManager.cancel(NOTIFICATION_ID)
             isInForeground = false
         }
@@ -366,7 +366,7 @@ class MeshForegroundService : Service() {
         try { serviceJob.cancel() } catch (_: Exception) { }
         // Best-effort ensure we are not marked foreground
         if (isInForeground) {
-            try { stopForeground(true) } catch (_: Exception) { }
+            try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
             isInForeground = false
         }
         super.onDestroy()

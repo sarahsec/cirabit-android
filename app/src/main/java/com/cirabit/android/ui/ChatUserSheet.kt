@@ -1,5 +1,6 @@
 package com.cirabit.android.ui
 
+import android.content.ClipData
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
@@ -13,8 +14,7 @@ import androidx.compose.ui.unit.sp
 import com.cirabit.android.ui.theme.BASE_FONT_SIZE
 import androidx.compose.ui.res.stringResource
 import com.cirabit.android.R
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
 import com.cirabit.android.core.ui.component.sheet.CirabitBottomSheet
 import com.cirabit.android.model.CirabitMessage
 
@@ -33,8 +33,7 @@ fun ChatUserSheet(
     viewModel: ChatViewModel,
     modifier: Modifier = Modifier
 ) {
-    val coroutineScope = rememberCoroutineScope()
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     
     // iOS system colors (matches LocationChannelsSheet exactly)
     val colorScheme = MaterialTheme.colorScheme
@@ -85,7 +84,9 @@ fun ChatUserSheet(
                                 titleColor = standardGrey,
                                 onClick = {
                                     // Copy the message content to clipboard
-                                    clipboardManager.setText(AnnotatedString(message.content))
+                                    clipboard.nativeClipboard.setPrimaryClip(
+                                        ClipData.newPlainText("cirabit_message", message.content)
+                                    )
                                     onDismiss()
                                 }
                             )

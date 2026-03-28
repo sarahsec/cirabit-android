@@ -132,7 +132,7 @@ fun VerificationSheet(
                 containerColor = Color.Transparent,
                 contentColor = accent,
                 indicator = { tabPositions ->
-                    TabRowDefaults.Indicator(
+                    TabRowDefaults.SecondaryIndicator(
                         Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
                         color = accent
                     )

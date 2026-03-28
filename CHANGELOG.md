@@ -25,9 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update checks are fully skipped when the user disables the feature.
 - Geohash heartbeat jitter now uses CSPRNG-backed randomness (`SecureRandom`) for less predictable broadcast timing.
 - Chat user action sheet now includes a direct "Message" action for starting private conversations without replacing existing actions.
+- Updated deprecated Android APIs in core runtime paths:
+  - `stopForeground(Boolean)` migrated to `stopForeground(Service.STOP_FOREGROUND_*)`.
+  - BLE characteristic notify/write flows migrated to modern API signatures on Android 13+ with compatibility fallback.
+  - Compose deprecations migrated (`Icons.AutoMirrored.Filled.ArrowBack`, `LocalClipboard`, `TabRowDefaults.SecondaryIndicator`).
 
 ### Fixed
 - Prevented false "could not verify updates" states caused by cancelled Compose coroutines.
+- Replaced deprecated `requestSingleUpdate` in location provider with one-shot listener registration/removal.
+- Removed unchecked generic casts in channel-key packet parsing, Nostr event tag parsing, and persisted channel creator map loading.
 - Hardened incoming media/file handling against oversized payload DoS by enforcing `MAX_INCOMING_FILE_BYTES` during fragment reassembly, TLV decode, and message handling.
 - Added disk-space preflight checks before persisting incoming files to reduce storage exhaustion risk.
 - Replaced direct image decoding in chat/UI with bounded two-pass decode (`inJustDecodeBounds` + `inSampleSize`) on `Dispatchers.IO` and explicit OOM fallback.

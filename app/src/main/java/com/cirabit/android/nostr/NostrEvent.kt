@@ -30,13 +30,21 @@ data class NostrEvent(
                     pubkey = json["pubkey"] as? String ?: return null,
                     createdAt = (json["created_at"] as? Number)?.toInt() ?: return null,
                     kind = (json["kind"] as? Number)?.toInt() ?: return null,
-                    tags = (json["tags"] as? List<List<String>>) ?: return null,
+                    tags = parseTags(json["tags"]) ?: return null,
                     content = json["content"] as? String ?: return null,
                     sig = json["sig"] as? String?
                 )
             } catch (e: Exception) {
                 null
             }
+        }
+
+        private fun parseTags(rawTags: Any?): List<List<String>>? {
+            val tagsList = rawTags as? List<*> ?: return null
+            return tagsList.mapNotNull { tag ->
+                val tagItems = tag as? List<*> ?: return null
+                tagItems.mapNotNull { it as? String }
+            }.takeIf { it.size == tagsList.size }
         }
         
         /**

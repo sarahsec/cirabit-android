@@ -44,21 +44,21 @@ Atualizar o app de forma segura e previsivel, reduzindo risco de quebra futura e
 
 ---
 
-### Fase 3 - Deprecations de Alto Risco (proxima)
+### Fase 3 - Deprecations de Alto Risco (concluida)
 **Objetivo:** reduzir chance de break em novos Android SDK/AGP.
 
 **Prioridade alta**
-1. `MeshForegroundService`: substituir usos de `stopForeground(Boolean)` por API atual.
-2. `SystemLocationProvider`: remover `requestSingleUpdate` depreciado.
-3. `BluetoothPacketBroadcaster`: revisar chamadas BLE depreciadas.
+1. `MeshForegroundService`: substituir usos de `stopForeground(Boolean)` por API atual. ✅
+2. `SystemLocationProvider`: remover `requestSingleUpdate` depreciado. ✅
+3. `BluetoothPacketBroadcaster`: revisar chamadas BLE depreciadas. ✅
 
 **Prioridade media**
-1. Compose deprecado (`ArrowBack`, `LocalClipboardManager`, `Indicator`).
-2. Utilitarios de display depreciados (`defaultDisplay/getMetrics`).
-3. Casts inseguros e warnings de unchecked cast.
+1. Compose deprecado (`ArrowBack`, `LocalClipboardManager`, `Indicator`). ✅
+2. Utilitarios de display depreciados (`defaultDisplay/getMetrics`). ✅
+3. Casts inseguros e warnings de unchecked cast. ✅
 
 **Criterio de saida**
-- Reducao mensuravel de warnings deprecados em `compileDebugKotlin`.
+- Reducao mensuravel de warnings deprecados em `compileDebugKotlin`. ✅
 
 ---
 

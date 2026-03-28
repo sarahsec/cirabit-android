@@ -1,6 +1,7 @@
 package com.cirabit.android.noise
 
 import android.util.Log
+import com.google.gson.reflect.TypeToken
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
@@ -225,7 +226,8 @@ class NoiseChannelEncryption {
     fun processChannelKeyPacket(data: ByteArray): Pair<String, String>? {
         return try {
             val json = String(data, Charsets.UTF_8)
-            val packet = com.google.gson.Gson().fromJson(json, Map::class.java) as Map<String, Any>
+            val packetType = object : TypeToken<Map<String, Any>>() {}.type
+            val packet: Map<String, Any> = com.google.gson.Gson().fromJson(json, packetType) ?: emptyMap()
             
             val channel = packet["channel"] as? String
             val password = packet["password"] as? String

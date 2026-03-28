@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattServer
+import android.bluetooth.BluetoothStatusCodes
+import android.os.Build
 import android.util.Log
 import com.cirabit.android.protocol.SpecialRecipients
 import com.cirabit.android.model.RoutedPacket
@@ -480,9 +482,12 @@ class BluetoothPacketBroadcaster(
     ): Boolean {
         return try {
             characteristic?.let { char ->
-                char.value = data
-                val result = gattServer?.notifyCharacteristicChanged(device, char, false) ?: false
-                result
+                notifyCharacteristicChangedCompat(
+                    gattServer = gattServer,
+                    device = device,
+                    characteristic = char,
+                    data = data
+                )
             } ?: false
         } catch (e: Exception) {
             Log.w(TAG, "Error sending to server connection ${device.address}: ${e.message}")
@@ -504,9 +509,11 @@ class BluetoothPacketBroadcaster(
     ): Boolean {
         return try {
             deviceConn.characteristic?.let { char ->
-                char.value = data
-                val result = deviceConn.gatt?.writeCharacteristic(char) ?: false
-                result
+                writeCharacteristicCompat(
+                    gatt = deviceConn.gatt,
+                    characteristic = char,
+                    data = data
+                )
             } ?: false
         } catch (e: Exception) {
             Log.w(TAG, "Error sending to client connection ${deviceConn.device.address}: ${e.message}")
@@ -515,6 +522,45 @@ class BluetoothPacketBroadcaster(
                 connectionTracker.cleanupDeviceConnection(deviceConn.device.address)
             }
             false
+        }
+    }
+
+    private fun notifyCharacteristicChangedCompat(
+        gattServer: BluetoothGattServer?,
+        device: BluetoothDevice,
+        characteristic: BluetoothGattCharacteristic,
+        data: ByteArray
+    ): Boolean {
+        if (gattServer == null) return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gattServer.notifyCharacteristicChanged(device, characteristic, false, data) == BluetoothStatusCodes.SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                characteristic.value = data
+                gattServer.notifyCharacteristicChanged(device, characteristic, false)
+            }
+        }
+    }
+
+    private fun writeCharacteristicCompat(
+        gatt: BluetoothGatt?,
+        characteristic: BluetoothGattCharacteristic,
+        data: ByteArray
+    ): Boolean {
+        if (gatt == null) return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeCharacteristic(
+                characteristic,
+                data,
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            ) == BluetoothStatusCodes.SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                characteristic.value = data
+                gatt.writeCharacteristic(characteristic)
+            }
         }
     }
     
