@@ -1,41 +1,41 @@
 [versions]
 # Android and Kotlin
 agp = "8.10.1"
-kotlin = "2.2.0"
+kotlin = "2.3.20"
 compileSdk = "35"
 minSdk = "26" # API 26 for proper BLE support
 targetSdk = "35"
 
 # AndroidX Core
-core-ktx = "1.16.0"
-lifecycle-runtime = "2.9.1"
-activity-compose = "1.10.1"
+core-ktx = "1.18.0"
+lifecycle-runtime = "2.10.0"
+activity-compose = "1.13.0"
 appcompat = "1.7.1"
 
 # Compose
-compose-bom = "2025.06.01"
+compose-bom = "2026.03.01"
 
 # Navigation
-navigation-compose = "2.9.1"
+navigation-compose = "2.9.7"
 
 # Accompanist
 accompanist-permissions = "0.37.3"
 
 # Cryptography
 bouncycastle = "1.78.1"
-tink-android = "1.10.0"
+tink-android = "1.21.0"
 
 # JSON
-gson = "2.13.1"
+gson = "2.13.2"
 
 # Coroutines
 kotlinx-coroutines = "1.10.2"
 
 # Bluetooth
-nordic-ble = "2.6.1"
+nordic-ble = "2.11.0"
 
 # WebSocket
-okhttp = "4.12.0"
+okhttp = "5.3.2"
 tor-android-binary = "0.4.4.6"
 
 
@@ -49,19 +49,19 @@ biometric = "1.1.0"
 zxing-core = "3.5.4"
 
 # CameraX / ML Kit
-camerax = "1.5.2"
+camerax = "1.6.0"
 mlkit-barcode = "17.3.0"
 
 # Testing
 junit = "4.13.2"
-androidx-test-ext = "1.2.1"
-espresso = "3.6.1"
+androidx-test-ext = "1.3.0"
+espresso = "3.7.0"
 mockito-kotlin = "6.3.0"
 mockito-inline = "4.1.0"
 roboelectric = "4.16.1"
-kotlinx-coroutines-test = "1.6"
+kotlinx-coroutines-test = "1.10.2"
 
-lifecycle-process = "2.8.7"
+lifecycle-process = "2.10.0"
 
 [libraries]
 # AndroidX Core

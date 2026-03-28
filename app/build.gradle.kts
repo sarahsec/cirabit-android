@@ -172,7 +172,7 @@ dependencies {
     implementation(libs.androidx.biometric)
 
     // EXIF orientation handling for images
-    implementation("androidx.exifinterface:exifinterface:1.3.7")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
 
     // Testing
     testImplementation(libs.bundles.testing)
