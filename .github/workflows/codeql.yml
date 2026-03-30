@@ -47,7 +47,7 @@ jobs:
 
       - name: Setup Android SDK
         if: matrix.language == 'java-kotlin'
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
