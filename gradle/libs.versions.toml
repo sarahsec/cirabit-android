@@ -1,7 +1,7 @@
 [versions]
 # Android and Kotlin
 agp = "9.1.0"
-kotlin = "2.3.20"
+kotlin = "2.3.21"
 compileSdk = "36"
 minSdk = "26" # API 26 for proper BLE support
 targetSdk = "35"
@@ -13,10 +13,10 @@ activity-compose = "1.13.0"
 appcompat = "1.7.1"
 
 # Compose
-compose-bom = "2026.03.01"
+compose-bom = "2026.04.01"
 
 # Navigation
-navigation-compose = "2.9.7"
+navigation-compose = "2.9.8"
 
 # Accompanist
 accompanist-permissions = "0.37.3"
@@ -26,7 +26,7 @@ bouncycastle = "1.78.1"
 tink-android = "1.21.0"
 
 # JSON
-gson = "2.13.2"
+gson = "2.14.0"
 
 # Coroutines
 kotlinx-coroutines = "1.10.2"
