@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Localized strings for update check and update prompt (EN/PT-BR).
 
 ### Changed
+- Bumped Gradle wrapper to 9.5.0, AGP to 9.2.1, Kotlin to 2.4.0, BouncyCastle to 1.84, and related AndroidX/Compose/runtime libraries.
 - Automatic update checks now run on app resume with a 12-hour interval.
 - Clicking the update-check row icon/text opens the official download page: `https://cirabit.smaia.dev/download`.
 - Update check now uses a dedicated HTTP client with higher timeouts and endpoint fallback for better reliability.

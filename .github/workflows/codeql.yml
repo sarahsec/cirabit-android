@@ -35,7 +35,7 @@ jobs:
             build-mode: manual
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup JDK 17
         if: matrix.language == 'java-kotlin'
@@ -47,7 +47,7 @@ jobs:
 
       - name: Setup Android SDK
         if: matrix.language == 'java-kotlin'
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
