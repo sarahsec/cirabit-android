@@ -2,10 +2,11 @@ package com.cirabit.android.ui
 
 import com.cirabit.android.mesh.BluetoothMeshDelegate
 import com.cirabit.android.ui.NotificationTextUtils
-import com.cirabit.android.mesh.BluetoothMeshService
+import com.cirabit.android.mesh.MeshService
 import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.model.DeliveryStatus
 import com.cirabit.android.model.MessageReaction
+import com.cirabit.android.services.ContactDirectory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.Date
@@ -22,12 +23,12 @@ class MeshDelegateHandler(
     private val coroutineScope: CoroutineScope,
     private val onHapticFeedback: () -> Unit,
     private val getMyPeerID: () -> String,
-    private val getMeshService: () -> BluetoothMeshService
+    private val getMeshService: () -> MeshService,
+    private val markMessageReadLocally: (messageID: String) -> Unit = {}
 ) : BluetoothMeshDelegate {
 
     override fun didReceiveMessage(message: CirabitMessage) {
         coroutineScope.launch {
-            // FIXED: Deduplicate messages from dual connection paths
             val messageKey = messageManager.generateMessageKey(message)
             if (messageManager.isMessageProcessed(messageKey)) {
                 return@launch // Duplicate message, ignore
@@ -45,24 +46,29 @@ class MeshDelegateHandler(
             onHapticFeedback()
 
             if (message.isPrivate) {
-                // Private message
-                privateChatManager.handleIncomingPrivateMessage(message)
+                if (message.sender == "system") {
+                    // System notices (e.g. "x favorited you"): no unread badge, read receipt or push
+                    privateChatManager.handleIncomingPrivateMessage(message, suppressUnread = true)
+                } else {
+                    // Private message
+                    privateChatManager.handleIncomingPrivateMessage(message)
 
-                // Reactive read receipts: if chat is focused, send immediately for this message
-                message.senderPeerID?.let { senderPeerID ->
-                    sendReadReceiptIfFocused(message)
-                }
-                
-                // Show notification with enhanced information - now includes senderPeerID 
-                message.senderPeerID?.let { senderPeerID ->
-                    // Use nickname if available, fall back to sender or senderPeerID
-                    val senderNickname = message.sender.takeIf { it != senderPeerID } ?: senderPeerID
-                    val preview = NotificationTextUtils.buildPrivateMessagePreview(message)
-                    notificationManager.showPrivateMessageNotification(
-                        senderPeerID = senderPeerID,
-                        senderNickname = senderNickname,
-                        messageContent = preview
-                    )
+                    // Reactive read receipts: if chat is focused, send immediately for this message
+                    message.senderPeerID?.let { senderPeerID ->
+                        sendReadReceiptIfFocused(message)
+                    }
+
+                    // Show notification with enhanced information - now includes senderPeerID
+                    message.senderPeerID?.let { senderPeerID ->
+                        // Use nickname if available, fall back to sender or senderPeerID
+                        val senderNickname = message.sender.takeIf { it != senderPeerID } ?: senderPeerID
+                        val preview = NotificationTextUtils.buildPrivateMessagePreview(message)
+                        notificationManager.showPrivateMessageNotification(
+                            senderPeerID = senderPeerID,
+                            senderNickname = senderNickname,
+                            messageContent = preview
+                        )
+                    }
                 }
             } else if (message.channel != null) {
                 // Channel message: AppStateStore is the source of truth for list; only manage unread
@@ -101,99 +107,46 @@ class MeshDelegateHandler(
     
     override fun didUpdatePeerList(peers: List<String>) {
         coroutineScope.launch {
-            state.setConnectedPeers(peers)
-            state.setIsConnected(peers.isNotEmpty())
-            notificationManager.showActiveUserNotification(peers)
-            // Flush router outbox for any peers that just connected (and their noiseHex aliases)
-            runCatching { com.cirabit.android.services.MessageRouter.tryGetInstance()?.onPeersUpdated(peers) }
+            processPeerUpdate(peers.distinct())
+        }
+    }
 
-            // Clean up channel members who disconnected
-            channelManager.cleanupDisconnectedMembers(peers, getMyPeerID())
+    private suspend fun processPeerUpdate(mergedPeers: List<String>) {
+        state.setConnectedPeers(mergedPeers)
+        state.setIsConnected(mergedPeers.isNotEmpty())
+        
+        // Flush router outbox for any peers that just connected (and their noiseHex aliases)
+        runCatching { com.cirabit.android.services.MessageRouter.tryGetInstance()?.onPeersUpdated(mergedPeers) }
 
-            // Handle chat view migration based on current selection and new peer list
-            state.getSelectedPrivateChatPeerValue()?.let { currentPeer ->
-                val isNostrAlias = currentPeer.startsWith("nostr_")
-                val isNoiseHex = currentPeer.length == 64 && currentPeer.matches(Regex("^[0-9a-fA-F]+$"))
-                val isMeshEphemeral = currentPeer.length == 16 && currentPeer.matches(Regex("^[0-9a-fA-F]+$"))
+        // Clean up channel members who disconnected
+        channelManager.cleanupDisconnectedMembers(mergedPeers, getMyPeerID())
 
-                if (isNostrAlias || isNoiseHex) {
-                    // Reverse case: Nostr/offline chat is open, and peer may have come online on mesh.
-                    // Resolve canonical target (prefer connected mesh peer if available)
-                    val canonical = com.cirabit.android.services.ConversationAliasResolver.resolveCanonicalPeerID(
-                        selectedPeerID = currentPeer,
-                        connectedPeers = peers,
-                        meshNoiseKeyForPeer = { pid -> getPeerInfo(pid)?.noisePublicKey },
-                        meshHasPeer = { pid -> peers.contains(pid) },
-                        nostrPubHexForAlias = { alias ->
-                            // Use GeohashAliasRegistry for geohash aliases, but for mesh favorites, derive from favorites mapping
-                            if (com.cirabit.android.nostr.GeohashAliasRegistry.contains(alias)) {
-                                com.cirabit.android.nostr.GeohashAliasRegistry.get(alias)
-                            } else {
-                                // Best-effort: derive pub hex from favorites mapping for mesh nostr_ aliases
-                                val prefix = alias.removePrefix("nostr_")
-                                val favs = try { com.cirabit.android.favorites.FavoritesPersistenceService.shared.getOurFavorites() } catch (_: Exception) { emptyList() }
-                                favs.firstNotNullOfOrNull { rel ->
-                                    rel.peerNostrPublicKey?.let { s ->
-                                        runCatching { com.cirabit.android.nostr.Bech32.decode(s) }.getOrNull()?.let { dec ->
-                                            if (dec.first == "npub") dec.second.joinToString("") { b -> "%02x".format(b) } else null
-                                        }
-                                    }
-                                }?.takeIf { it.startsWith(prefix, ignoreCase = true) }
-                            }
-                        },
-                        findNoiseKeyForNostr = { key -> com.cirabit.android.favorites.FavoritesPersistenceService.shared.findNoiseKey(key) }
-                    )
-                    if (canonical != currentPeer) {
-                        // Merge conversations and switch selection to the live mesh peer (or noiseHex)
-                        com.cirabit.android.services.ConversationAliasResolver.unifyChatsIntoPeer(state, canonical, listOf(currentPeer))
-                        state.setSelectedPrivateChatPeer(canonical)
-                    }
-                } else if (isMeshEphemeral && !peers.contains(currentPeer)) {
-                    // Forward case: Mesh chat lost connection. If mutual favorite exists, migrate to Nostr (noiseHex)
-                    val favoriteRel = try {
-                        val info = getPeerInfo(currentPeer)
-                        val noiseKey = info?.noisePublicKey
-                        if (noiseKey != null) {
-                            com.cirabit.android.favorites.FavoritesPersistenceService.shared.getFavoriteStatus(noiseKey)
-                        } else null
-                    } catch (_: Exception) { null }
+        runCatching { com.cirabit.android.services.AppStateStore.canonicalizePrivateChats() }
 
-                    if (favoriteRel?.isMutual == true) {
-                        val noiseHex = favoriteRel.peerNoisePublicKey.joinToString("") { b -> "%02x".format(b) }
-                        if (noiseHex != currentPeer) {
-                            com.cirabit.android.services.ConversationAliasResolver.unifyChatsIntoPeer(
-                                state = state,
-                                targetPeerID = noiseHex,
-                                keysToMerge = listOf(currentPeer)
-                            )
-                            state.setSelectedPrivateChatPeer(noiseHex)
-                        }
-                    } else {
-                        privateChatManager.cleanupDisconnectedPeer(currentPeer)
-                    }
-                }
+        state.getSelectedPrivateChatPeerValue()?.let { currentPeer ->
+            val canonical = ContactDirectory.canonicalConversationId(currentPeer)
+            if (canonical != currentPeer) {
+                com.cirabit.android.services.ConversationAliasResolver.unifyChatsIntoPeer(
+                    state = state,
+                    targetPeerID = canonical,
+                    keysToMerge = ContactDirectory.aliasesForConversation(currentPeer).toList()
+                )
+                state.setSelectedPrivateChatPeer(canonical)
             }
+        }
 
-            // Global unification: for each connected peer, merge any offline/stable conversations
-            // (noiseHex or nostr_<pub16>) into the connected peer's chat so there is only one chat per identity.
-            peers.forEach { pid ->
-                try {
-                    val info = getPeerInfo(pid)
-                    val noiseKey = info?.noisePublicKey ?: return@forEach
-                    val noiseHex = noiseKey.joinToString("") { b -> "%02x".format(b) }
-
-                    // Derive temp nostr key from favorites npub
-                    val npub = com.cirabit.android.favorites.FavoritesPersistenceService.shared.findNostrPubkey(noiseKey)
-                    val tempNostrKey: String? = try {
-                        if (npub != null) {
-                            val (hrp, data) = com.cirabit.android.nostr.Bech32.decode(npub)
-                            if (hrp == "npub") "nostr_${data.joinToString("") { b -> "%02x".format(b) }.take(16)}" else null
-                        } else null
-                    } catch (_: Exception) { null }
-
-                    unifyChatsIntoPeer(pid, listOfNotNull(noiseHex, tempNostrKey))
-                } catch (_: Exception) { }
+        state.getPrivateChatSheetPeerValue()?.let { sheetPeer ->
+            val canonical = ContactDirectory.canonicalConversationId(sheetPeer)
+            if (canonical != sheetPeer) {
+                state.setPrivateChatSheetPeer(canonical)
             }
+        }
+
+        mergedPeers.forEach { pid ->
+            try {
+                val canonical = ContactDirectory.canonicalConversationId(pid)
+                unifyChatsIntoPeer(canonical, ContactDirectory.aliasesForConversation(pid).toList())
+            } catch (_: Exception) { }
         }
     }
 
@@ -294,26 +247,48 @@ class MeshDelegateHandler(
         
         // Send read receipt if user is currently focused on this specific chat
         val senderPeerID = message.senderPeerID
-        val shouldSendReadReceipt = !isAppInBackground && senderPeerID != null && currentPrivateChatPeer == senderPeerID
-        
-            if (shouldSendReadReceipt) {
-                android.util.Log.d("MeshDelegateHandler", "Sending reactive read receipt for focused chat with $senderPeerID (message=${message.id})")
-                val nickname = state.getNicknameValue() ?: "unknown"
-                // Send directly for this message to avoid relying on unread queues
-                getMeshService().sendReadReceipt(message.id, senderPeerID!!, nickname)
-                // Ensure unread badge is cleared for this peer immediately
-                try {
-                    val current = state.getUnreadPrivateMessagesValue().toMutableSet()
-                    if (current.remove(senderPeerID)) {
-                        state.setUnreadPrivateMessages(current)
+        val senderConversationID = senderPeerID?.let { ContactDirectory.canonicalConversationId(it) }
+        val focusedConversationID = currentPrivateChatPeer?.let { ContactDirectory.canonicalConversationId(it) }
+        val shouldSendReadReceipt = !isAppInBackground &&
+            senderConversationID != null &&
+            focusedConversationID == senderConversationID
+
+        if (shouldSendReadReceipt) {
+            android.util.Log.d(
+                "MeshDelegateHandler",
+                "Sending reactive read receipt for focused chat with $senderConversationID (message=${message.id})"
+            )
+            // UI focus is the source of truth for local read state. Transport acceptance is a
+            // separate fact and may remain retryable when the peer disconnects.
+            try { markMessageReadLocally(message.id) } catch (_: Exception) { }
+
+            val nickname = state.getNicknameValue().ifBlank { "unknown" }
+            val mesh = getMeshService()
+            try {
+                val meshPeerID = ContactDirectory.resolve(senderConversationID).meshPeerID
+                    ?: senderPeerID.takeIf {
+                        com.cirabit.android.services.ContactIdentityResolver.isMeshPeerId(it)
                     }
-                } catch (_: Exception) { }
-            } else {
-                android.util.Log.d("MeshDelegateHandler", "Skipping read receipt - chat not focused (background: $isAppInBackground, current peer: $currentPrivateChatPeer, sender: $senderPeerID)")
-            }
+                if (meshPeerID != null &&
+                    mesh.getPeerInfo(meshPeerID)?.isConnected == true &&
+                    mesh.hasEstablishedSession(meshPeerID)
+                ) {
+                    mesh.sendReadReceipt(message.id, meshPeerID, nickname)
+                }
+            } catch (_: Exception) { }
+
+            // Ensure unread badge is cleared for this peer immediately.
+            try {
+                val current = state.getUnreadPrivateMessagesValue().toMutableSet()
+                val changed = current.remove(senderPeerID) or current.remove(senderConversationID)
+                if (changed) {
+                    state.setUnreadPrivateMessages(current)
+                }
+            } catch (_: Exception) { }
+        } else {
+            android.util.Log.d("MeshDelegateHandler", "Skipping read receipt - chat not focused (background: $isAppInBackground, current peer: $currentPrivateChatPeer, sender: $senderPeerID)")
         }
-    
-    // registerPeerPublicKey REMOVED - fingerprints now handled centrally in PeerManager
+    }
 
     /**
      * Expose mesh peer info for components that need to resolve identities (e.g., Nostr mapping)

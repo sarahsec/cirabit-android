@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">cirabit</string>
 
     <!-- Justificativas de permissões (BR) -->
@@ -79,6 +79,7 @@
     <string name="cd_toggle_bookmark">Alternar favorito</string>
     <string name="cd_teleported">Teleportado</string>
     <string name="cd_tor_status">Status do Tor</string>
+    <string name="cd_open_location_channels">Abrir configurações de localização e canais</string>
     <string name="cd_connected_peers">Peers conectados</string>
     <string name="cd_geohash_participants">Participantes geohash</string>
     <string name="cd_ready_for_handshake">Pronto para handshake</string>
@@ -103,7 +104,6 @@
     <string name="about_online_geohash_desc">Conecte-se com pessoas próximas por canais baseados em geohash. Expanda a mesh usando relays públicos na internet.</string>
     <string name="about_e2e_title">Criptografia de ponta a ponta</string>
     <string name="about_e2e_desc">Mensagens privadas são criptografadas. Mensagens de canal são públicas.</string>
-    <string name="about_appearance">Aparência</string>
     <string name="about_system">Sistema</string>
     <string name="about_light">Claro</string>
     <string name="about_dark">Escuro</string>
@@ -127,7 +127,6 @@
     <string name="about_tor_status">Status do Tor: %1$s, bootstrap %2$d%%</string>
     <string name="about_last">Último: %1$s</string>
     <string name="about_emergency_title">Limpeza de dados de emergência</string>
-    <string name="about_emergency_tip">Dica: Toque 3 vezes no título do app para apagar todos os dados salvos – incluindo mensagens, chaves e configurações.</string>
     <string name="about_debug_settings">Configurações de depuração</string>
     <string name="about_footer">Código aberto • Privacidade em primeiro lugar • Descentralizado</string>
     <string name="close_plain">Fechar</string>
@@ -341,11 +340,6 @@
     <!-- Acessibilidade do player de voz -->
     <string name="cd_play_voice">Reproduzir</string>
     <string name="cd_pause_voice">Pausar</string>
-    <string name="cd_mining_pow">Minerando PoW</string>
-    <string name="cd_pow_enabled">PoW ativado</string>
-    <string name="cd_proof_of_work">Prova de Trabalho</string>
-    <string name="pow_mining_ellipsis">Minerando…</string>
-    <string name="pow_label_format">pow: %1$dbit</string>
 
     <!-- Descrições de permissões -->
     <string name="perm_nearby_devices_desc">Necessário para descobrir usuários do Cirabit via Bluetooth</string>
@@ -362,6 +356,7 @@
     <string name="perm_type_precise_location">Localização precisa</string>
     <string name="perm_type_microphone">Microfone</string>
     <string name="perm_type_notifications">Notificações</string>
+    <string name="perm_type_wifi_aware">Wi‑Fi Aware</string>
     <string name="perm_type_battery_optimization">Otimização de bateria</string>
     <string name="perm_type_other">Outros</string>
 
@@ -396,6 +391,7 @@
   <string name="location_notes_empty_desc">Seja o primeiro a adicionar uma para este local.</string>
   <string name="dismiss">Fechar</string>
   <string name="location_notes_input_placeholder">Adicione uma nota para este local</string>
+    <string name="bluetooth_recommended">Bluetooth recomendado</string>
     <string name="mesh_service_notification_content">Mesh rodando — %1$d pares</string>
 
   <string name="verify_title">Verificar</string>
@@ -481,4 +477,11 @@
   <string name="perm_background_location_system">Permitir acesso à localização em segundo plano</string>
   <string name="perm_type_background_location">Localização em segundo plano</string>
   <string name="tor_not_available_in_this_build">Tor não está disponível nesta compilação</string>
+  <string name="nearby_notes_reveal">ver se há notas deixadas aqui</string>
+  <string name="nearby_notes_one">1 nota deixada aqui — toque para ler</string>
+  <string name="nearby_notes_many">%d notas deixadas aqui — toque para ler</string>
+    <string name="about_language">Idioma</string>
+    <string name="about_app_language">Idioma do app</string>
+    <string name="about_system_default">Padrão do sistema</string>
+    <string name="about_select_language">Selecionar idioma</string>
 </resources>

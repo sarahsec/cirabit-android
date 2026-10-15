@@ -1,14 +1,37 @@
 import java.util.Properties
 
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.kotlin.compose)
 }
 
+val githubReleaseCertSha256 = providers
+    .environmentVariable("BITCHAT_GITHUB_RELEASE_CERT_SHA256")
+    .orElse(providers.gradleProperty("BITCHAT_GITHUB_RELEASE_CERT_SHA256"))
+    .orElse("")
+val normalizedGithubReleaseCertSha256 = githubReleaseCertSha256.get()
+    .replace(":", "")
+    .trim()
+    .lowercase()
+require(
+    normalizedGithubReleaseCertSha256.isEmpty() ||
+        normalizedGithubReleaseCertSha256.matches(Regex("[a-f0-9]{64}"))
+) {
+    "BITCHAT_GITHUB_RELEASE_CERT_SHA256 must be a SHA-256 certificate fingerprint"
+}
+
 android {
+    testOptions {
+        // Cirabit: CommandProcessor resolves localized strings, so Robolectric tests need app resources.
+        unitTests.isIncludeAndroidResources = true
+    }
+
     namespace = "com.cirabit.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    buildToolsVersion = libs.versions.buildTools.get()
 
     defaultConfig {
         applicationId = "com.cirabit.android"
@@ -16,6 +39,11 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 32
         versionName = "1.7.3"
+        buildConfigField(
+            "String",
+            "GITHUB_RELEASE_CERT_SHA256",
+            "\"$normalizedGithubReleaseCertSha256\""
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -68,6 +96,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            vcsInfo {
+                // BUILDINFO.json and attestations carry the verified commit
+                // without depending on host-specific Git/worktree paths.
+                include = false
+            }
         }
     }
 
@@ -95,6 +128,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -108,10 +142,17 @@ android {
     }
 }
 
+composeCompiler {
+    // Kotlin 2.4.10's optional Compose group-key mapping depends on unspecified
+    // class-file iteration order. Keep the normal R8 mapping, but omit that
+    // augmentation until its producer is deterministic across clean builds.
+    includeComposeMappingFile.set(false)
+}
+
 kotlin {
     jvmToolchain(17)
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -159,6 +200,12 @@ dependencies {
     // WebSocket
     implementation(libs.okhttp)
 
+    // WorkManager for background APK downloads
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // HTTP Server for hotspot APK sharing
+    implementation(libs.nanohttpd)
+
     // Arti (Tor in Rust) Android bridge - custom build from latest source
     // Built with rustls, 16KB page size support, and onio//un service client
     // Native libraries are in src/tor/jniLibs/ (extracted from arti-custom.aar)
@@ -171,11 +218,20 @@ dependencies {
     implementation(libs.androidx.biometric)
 
     // EXIF orientation handling for images
-    implementation("androidx.exifinterface:exifinterface:1.4.2")
-
+    implementation(libs.androidx.exifinterface)
+    
     // Testing
     testImplementation(libs.bundles.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.bundles.compose.testing)
     debugImplementation(libs.androidx.compose.ui.tooling)
+}
+
+// Robolectric resolves Android runtime jars itself (outside Gradle dependency resolution).
+// Its legacy repo1 endpoint rejects cold GitHub-hosted runners with HTTP 403.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    systemProperty(
+        "robolectric.dependency.repo.url",
+        "https://repo.maven.apache.org/maven2"
+    )
 }

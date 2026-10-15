@@ -7,11 +7,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cirabit.android.ui.theme.CirabitFontFamily
 import com.cirabit.android.ui.theme.BASE_FONT_SIZE
+import com.cirabit.android.ui.theme.LocalCirabitPalette
 import androidx.compose.ui.res.stringResource
 import com.cirabit.android.R
 import androidx.compose.ui.platform.LocalClipboard
@@ -35,14 +36,13 @@ fun ChatUserSheet(
 ) {
     val clipboard = LocalClipboard.current
     
-    // iOS system colors (matches LocationChannelsSheet exactly)
     val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.red + colorScheme.background.green + colorScheme.background.blue < 1.5f
-    val standardGreen = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D) // iOS green
-    val standardBlue = Color(0xFF007AFF) // iOS blue
-    val standardPurple = if (isDark) Color(0xFFBF5AF2) else Color(0xFFAF52DE) // iOS purple
-    val standardRed = Color(0xFFFF3B30) // iOS red
-    val standardGrey = if (isDark) Color(0xFF8E8E93) else Color(0xFF6D6D70) // iOS grey
+    val palette = LocalCirabitPalette.current
+    val standardGreen = colorScheme.primary
+    val standardBlue = colorScheme.secondary
+    val standardPurple = palette.accentPurple
+    val standardRed = colorScheme.error
+    val standardGrey = colorScheme.onSurfaceVariant
     
     if (isPresented) {
         CirabitBottomSheet(
@@ -59,7 +59,7 @@ fun ChatUserSheet(
                 Text(
                     text = stringResource(R.string.at_nickname, targetNickname),
                     fontSize = 18.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = CirabitFontFamily,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -67,7 +67,7 @@ fun ChatUserSheet(
                 Text(
                     text = if (selectedMessage != null) stringResource(R.string.choose_action_message_or_user) else stringResource(R.string.choose_action_user),
                     fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = CirabitFontFamily,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
                 
@@ -107,6 +107,7 @@ fun ChatUserSheet(
                     
                     // Only show user actions for other users' messages or when no message is selected
                     if (selectedMessage?.sender != viewModel.nickname.value) {
+                        // Send private message action
                         item {
                             UserActionRow(
                                 title = stringResource(R.string.action_private_message_title, targetNickname),
@@ -122,6 +123,7 @@ fun ChatUserSheet(
                                             viewModel.startGeohashDMByNickname(targetNickname)
                                         }
                                     } else {
+                                        // Mesh chat
                                         val peerID = selectedMessage?.senderPeerID ?: viewModel.getPeerIDForNickname(targetNickname)
                                         if (peerID != null) {
                                             viewModel.showPrivateChatSheet(peerID)
@@ -195,7 +197,7 @@ fun ChatUserSheet(
                     Text(
                         text = stringResource(R.string.cancel_lower),
                         fontSize = BASE_FONT_SIZE.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = CirabitFontFamily
                     )
                 }
             }
@@ -226,7 +228,7 @@ private fun UserActionRow(
             Text(
                 text = title,
                 fontSize = BASE_FONT_SIZE.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = CirabitFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = titleColor
             )
@@ -234,7 +236,7 @@ private fun UserActionRow(
             Text(
                 text = subtitle,
                 fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = CirabitFontFamily,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
         }

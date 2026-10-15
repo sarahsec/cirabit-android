@@ -16,6 +16,13 @@ import java.nio.ByteOrder
  * Length field for TLV is 2 bytes (UInt16, big-endian) for all TLVs.
  * For large files, CONTENT is chunked into multiple TLVs of up to 65535 bytes each.
  *
+ * Unknown TLV types are SKIPPED, not rejected: the tag list above is a floor,
+ * not a ceiling, and a decoder that bails on the first tag it does not know
+ * makes the format unextendable — the whole file is lost over a field that,
+ * by construction, the sender considered optional. The iOS client has always
+ * done this (`case nil: continue` in its own decoder), so rejecting here also
+ * meant the two implementations disagreed about what a valid packet is.
+ *
  * Note: The outer CirabitPacket uses version 2 (4-byte payload length), so this
  * TLV payload can exceed 64 KiB even though each TLV value is limited to 65535 bytes.
  * Transport-level fragmentation then splits the final packet for BLE MTU.
@@ -28,7 +35,15 @@ data class CirabitFilePacket(
 ) {
     private enum class TLVType(val v: UByte) {
         FILE_NAME(0x01u), FILE_SIZE(0x02u), MIME_TYPE(0x03u), CONTENT(0x04u);
-        companion object { fun from(value: UByte) = values().find { it.v == value } }
+        companion object {
+            fun from(value: UByte): TLVType? = when (value) {
+                FILE_NAME.v -> FILE_NAME
+                FILE_SIZE.v -> FILE_SIZE
+                MIME_TYPE.v -> MIME_TYPE
+                CONTENT.v -> CONTENT
+                else -> null
+            }
+        }
     }
 
     fun encode(): ByteArray? {
@@ -105,8 +120,15 @@ data class CirabitFilePacket(
                 var totalContentBytes = 0L
                 var sawContentTlv = false
                 val contentBuffer = ByteArrayOutputStream()
-                while (off + 3 <= data.size) { // minimum TLV header size (type + 2 bytes length)
-                    val t = TLVType.from(data[off].toUByte()) ?: return null
+                var skippedUnknownTLVs = 0
+                while (off < data.size) {
+                    // Every TLV needs at least a type and a 2-byte length.
+                    // Reject a truncated trailing header instead of silently
+                    // accepting it, matching the iOS decoder.
+                    if (data.size - off < 3) return null
+                    // A null `t` is an unknown tag: read its length like any
+                    // other 2-byte TLV and skip its value, matching iOS.
+                    val t = TLVType.from(data[off].toUByte())
                     off += 1
                     // CONTENT uses 4-byte length; others use 2-byte length
                     val len: Int
@@ -120,6 +142,13 @@ data class CirabitFilePacket(
                         off += 2
                     }
                     if (len < 0 || off + len > data.size) return null
+                    if (t == null) {
+                        // Unknown tag: advance past the value without copying it
+                        // and without logging (attacker-scaled otherwise).
+                        off += len
+                        skippedUnknownTLVs += 1
+                        continue
+                    }
                     when (t) {
                         TLVType.FILE_NAME -> name = String(data, off, len, Charsets.UTF_8)
                         TLVType.FILE_SIZE -> {
@@ -151,6 +180,9 @@ data class CirabitFilePacket(
                         }
                     }
                     off += len
+                }
+                if (skippedUnknownTLVs > 0) {
+                    android.util.Log.d("CirabitFilePacket", "⏭️ Skipped $skippedUnknownTLVs unknown TLV(s)")
                 }
                 val n = name ?: return null
                 val c = contentBuffer.toByteArray()

@@ -18,7 +18,7 @@ class BluetoothConnectionManager(
     private val context: Context, 
     private val myPeerID: String,
     private val fragmentManager: FragmentManager? = null
-) : PowerManagerDelegate {
+) {
     
     companion object {
         private const val TAG = "BluetoothConnectionManager"
@@ -30,7 +30,7 @@ class BluetoothConnectionManager(
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
     
     // Power management
-    private val powerManager = PowerManager(context.applicationContext)
+    private val powerManager = PowerManager.getInstance(context.applicationContext)
     
     // Coroutines
     private val connectionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -42,8 +42,12 @@ class BluetoothConnectionManager(
     
     // Delegate for component managers to call back to main manager
     private val componentDelegate = object : BluetoothConnectionManagerDelegate {
-        override fun onPacketReceived(packet: CirabitPacket, peerID: String, device: BluetoothDevice?) {
-            Log.d(TAG, "onPacketReceived: Packet received from ${device?.address} ($peerID)")
+        override fun onPacketReceived(
+            packet: CirabitPacket,
+            peerID: String,
+            device: BluetoothDevice?,
+            ingressLinkID: String
+        ) {
             device?.let { bluetoothDevice ->
                 // Get current RSSI for this device and update if available
                 val currentRSSI = connectionTracker.getBestRSSI(bluetoothDevice.address)
@@ -54,7 +58,7 @@ class BluetoothConnectionManager(
 
             if (peerID == myPeerID) return // Ignore messages from self
 
-            delegate?.onPacketReceived(packet, peerID, device)
+            delegate?.onPacketReceived(packet, peerID, device, ingressLinkID)
         }
         
         override fun onDeviceConnected(device: BluetoothDevice) {
@@ -63,8 +67,17 @@ class BluetoothConnectionManager(
             delegate?.onDeviceConnected(device)
         }
 
-        override fun onDeviceDisconnected(device: BluetoothDevice) {
-            delegate?.onDeviceDisconnected(device)
+        override fun onDeviceDisconnected(device: BluetoothDevice, linkID: String?, peerID: String?) {
+            packetBroadcaster.onLinkDisconnected(device.address, linkID)
+            delegate?.onDeviceDisconnected(device, linkID, peerID)
+        }
+
+        override fun onGattClientWriteComplete(deviceAddress: String, linkID: String, status: Int) {
+            packetBroadcaster.onGattClientWriteComplete(deviceAddress, linkID, status)
+        }
+
+        override fun onGattServerNotificationComplete(deviceAddress: String, linkID: String?, status: Int) {
+            packetBroadcaster.onGattServerNotificationComplete(deviceAddress, linkID, status)
         }
         
         override fun onRSSIUpdated(deviceAddress: String, rssi: Int) {
@@ -88,22 +101,67 @@ class BluetoothConnectionManager(
     // Public property for address-peer mapping
     val addressPeerMap get() = connectionTracker.addressPeerMap
 
+    fun observePeerIfCurrent(deviceAddress: String, linkID: String, peerID: String): Boolean =
+        connectionTracker.observePeerIfCurrent(deviceAddress, linkID, peerID)
+
+    fun getCurrentLinkID(deviceAddress: String): String? =
+        connectionTracker.getCurrentLinkID(deviceAddress)
+
+    private fun isBleTransportEnabled(): Boolean {
+        return try {
+            com.cirabit.android.ui.debug.DebugSettingsManager.getInstance().bleEnabled.value
+        } catch (_: Exception) {
+            try { com.cirabit.android.ui.debug.DebugPreferenceManager.getBleEnabled(true) } catch (_: Exception) { true }
+        }
+    }
+
+    private fun isGattServerEnabled(): Boolean {
+        return isBleTransportEnabled() &&
+            (try { com.cirabit.android.ui.debug.DebugSettingsManager.getInstance().gattServerEnabled.value } catch (_: Exception) { true })
+    }
+
+    private fun isGattClientEnabled(): Boolean {
+        return isBleTransportEnabled() &&
+            (try { com.cirabit.android.ui.debug.DebugSettingsManager.getInstance().gattClientEnabled.value } catch (_: Exception) { true })
+    }
+
     init {
-        powerManager.delegate = this
+        connectionScope.launch {
+            var previousMode: PowerManager.PowerMode? = null
+            powerManager.profile.collect { profile ->
+                val modeChanged = previousMode != null && previousMode != profile.mode
+                previousMode = profile.mode
+                if (!isActive || !isBleTransportEnabled()) return@collect
+
+                if (modeChanged && isGattServerEnabled()) {
+                    serverManager.restartAdvertising()
+                }
+                clientManager.applyPowerProfile(profile)
+            }
+        }
         // Observe debug settings to enforce role state while active
         try {
             val dbg = com.cirabit.android.ui.debug.DebugSettingsManager.getInstance()
+            // Master transport enable/disable
+            connectionScope.launch {
+                dbg.bleEnabled.collect { enabled ->
+                    if (enabled) return@collect
+                    if (isActive) {
+                        disableTransport()
+                    }
+                }
+            }
             // Role enable/disable
             connectionScope.launch {
                 dbg.gattServerEnabled.collect { enabled ->
                     if (!isActive) return@collect
-                    if (enabled) startServer() else stopServer()
+                    if (enabled && isBleTransportEnabled()) startServer() else stopServer()
                 }
             }
             connectionScope.launch {
                 dbg.gattClientEnabled.collect { enabled ->
                     if (!isActive) return@collect
-                    if (enabled) startClient() else stopClient()
+                    if (enabled && isBleTransportEnabled()) startClient() else stopClient()
                 }
             }
             
@@ -145,10 +203,8 @@ class BluetoothConnectionManager(
                 
                 toEvict.forEach { conn ->
                     if (conn.isClient) {
-                        Log.d(TAG, "Evicting client ${conn.device.address}")
                         try { conn.gatt?.disconnect() } catch (_: Exception) { }
                     } else {
-                        Log.d(TAG, "Evicting server ${conn.device.address}")
                         serverManager.disconnectDevice(conn.device)
                     }
                 }
@@ -162,7 +218,11 @@ class BluetoothConnectionManager(
      * Start all Bluetooth services with power optimization
      */
     fun startServices(): Boolean {
-        Log.i(TAG, "Starting power-optimized Bluetooth services...")
+        if (!isBleTransportEnabled()) {
+            Log.i(TAG, "BLE transport disabled by debug settings; not starting Bluetooth services")
+            disableTransport()
+            return false
+        }
         
         if (!permissionManager.hasBluetoothPermissions()) {
             Log.e(TAG, "Missing Bluetooth permissions")
@@ -176,7 +236,6 @@ class BluetoothConnectionManager(
         
         try {
             isActive = true
-            Log.d(TAG, "ConnectionManager activated (permissions and adapter OK)")
 
         // set the adapter's name to our 8-character peerID for iOS privacy, TODO: Make this configurable
         // try {
@@ -197,9 +256,8 @@ class BluetoothConnectionManager(
                 powerManager.start()
                 
                 // Start server/client based on debug settings
-                val dbg = try { com.cirabit.android.ui.debug.DebugSettingsManager.getInstance() } catch (_: Exception) { null }
-                val startServer = dbg?.gattServerEnabled?.value != false
-                val startClient = dbg?.gattClientEnabled?.value != false
+                val startServer = isGattServerEnabled()
+                val startClient = isGattClientEnabled()
 
                 if (startServer) {
                     if (!serverManager.start()) {
@@ -207,7 +265,6 @@ class BluetoothConnectionManager(
                         this@BluetoothConnectionManager.isActive = false
                         return@launch
                     }
-                    Log.d(TAG, "GATT Server started")
                 } else {
                     Log.i(TAG, "GATT Server disabled by debug settings; not starting")
                 }
@@ -218,7 +275,6 @@ class BluetoothConnectionManager(
                         this@BluetoothConnectionManager.isActive = false
                         return@launch
                     }
-                    Log.d(TAG, "GATT Client started")
                 } else {
                     Log.i(TAG, "GATT Client disabled by debug settings; not starting")
                 }
@@ -234,23 +290,30 @@ class BluetoothConnectionManager(
             return false
         }
     }
+
+    /**
+     * Disable BLE without cancelling this manager's coroutine scope, so it can be re-enabled.
+     */
+    fun disableTransport() {
+        Log.i(TAG, "Disabling BLE transport")
+        isActive = false
+        connectionScope.launch {
+            clientManager.stop()
+            serverManager.stop()
+            connectionTracker.stop()
+        }
+    }
     
     /**
      * Stop all Bluetooth services with proper cleanup
      */
     fun stopServices() {
-        Log.i(TAG, "Stopping power-optimized Bluetooth services")
-        
         isActive = false
-        
+
         connectionScope.launch {
-            Log.d(TAG, "Stopping client/server and power components...")
             // Stop component managers
             clientManager.stop()
             serverManager.stop()
-            
-            // Stop power manager
-            powerManager.stop()
             
             // Stop connection tracker
             connectionTracker.stop()
@@ -267,21 +330,27 @@ class BluetoothConnectionManager(
      * Returns false if its coroutine scope has been cancelled.
      */
     fun isReusable(): Boolean {
-        val active = connectionScope.isActive
-        if (!active) {
-            Log.d(TAG, "BluetoothConnectionManager isReusable=false (scope cancelled)")
-        }
-        return active
+        return connectionScope.isActive
     }
     
     /**
      * Broadcast packet to connected devices with connection limit enforcement
      * Automatically fragments large packets to fit within BLE MTU limits
      */
-    fun broadcastPacket(routed: RoutedPacket) {
-        if (!isActive) return
-        
-        packetBroadcaster.broadcastPacket(
+    fun broadcastPacket(routed: RoutedPacket): Boolean {
+        if (!isActive || !isBleTransportEnabled()) return false
+
+        return packetBroadcaster.broadcastPacket(
+            routed,
+            serverManager.getGattServer(),
+            serverManager.getCharacteristic()
+        )
+    }
+
+    suspend fun broadcastControlPacketAndAwaitAcceptance(routed: RoutedPacket): Boolean {
+        if (!isActive || !isBleTransportEnabled()) return false
+
+        return packetBroadcaster.broadcastControlPacketAndAwaitAcceptance(
             routed,
             serverManager.getGattServer(),
             serverManager.getCharacteristic()
@@ -289,7 +358,7 @@ class BluetoothConnectionManager(
     }
 
     fun sendToPeer(peerID: String, routed: RoutedPacket): Boolean {
-        if (!isActive) return false
+        if (!isActive || !isBleTransportEnabled()) return false
         return packetBroadcaster.sendToPeer(
             peerID,
             routed,
@@ -306,7 +375,7 @@ class BluetoothConnectionManager(
      * Send a packet directly to a specific peer, without broadcasting to others.
      */
     fun sendPacketToPeer(peerID: String, packet: CirabitPacket): Boolean {
-        if (!isActive) return false
+        if (!isActive || !isBleTransportEnabled()) return false
         return packetBroadcaster.sendPacketToPeer(
             RoutedPacket(packet),
             peerID,
@@ -314,12 +383,29 @@ class BluetoothConnectionManager(
             serverManager.getCharacteristic()
         )
     }
+
+    fun sendPacketToLink(deviceAddress: String, linkID: String, packet: CirabitPacket): Boolean {
+        if (!isActive || !isBleTransportEnabled()) return false
+        return packetBroadcaster.sendPacketToLink(
+            RoutedPacket(packet),
+            deviceAddress,
+            linkID,
+            serverManager.getGattServer(),
+            serverManager.getCharacteristic()
+        )
+    }
     
 
     // Expose role controls for debug UI
-    fun startServer() { connectionScope.launch { serverManager.start() } }
+    fun startServer() {
+        if (!isActive || !isBleTransportEnabled()) return
+        connectionScope.launch { if (isGattServerEnabled()) serverManager.start() }
+    }
     fun stopServer() { connectionScope.launch { serverManager.stop() } }
-    fun startClient() { connectionScope.launch { clientManager.start() } }
+    fun startClient() {
+        if (!isActive || !isBleTransportEnabled()) return
+        connectionScope.launch { if (isGattClientEnabled()) clientManager.start() }
+    }
     fun stopClient() { connectionScope.launch { clientManager.stop() } }
 
     // Inject nickname resolver for broadcaster logs
@@ -347,7 +433,10 @@ class BluetoothConnectionManager(
     /**
      * Public: connect/disconnect helpers for debug UI
      */
-    fun connectToAddress(address: String): Boolean = clientManager.connectToAddress(address)
+    fun connectToAddress(address: String): Boolean {
+        if (!isActive || !isBleTransportEnabled()) return false
+        return clientManager.connectToAddress(address)
+    }
     fun disconnectAddress(address: String) { connectionTracker.disconnectDevice(address) }
 
 
@@ -358,10 +447,10 @@ class BluetoothConnectionManager(
             clientManager.stop()
             serverManager.stop()
             delay(200)
-            if (isActive) {
+            if (isActive && isBleTransportEnabled()) {
                 // Restart managers if service is active
-                serverManager.start()
-                clientManager.start()
+                if (isGattServerEnabled()) serverManager.start()
+                if (isGattClientEnabled()) clientManager.start()
             }
         }
     }
@@ -390,55 +479,21 @@ class BluetoothConnectionManager(
         }
     }
     
-    // MARK: - PowerManagerDelegate Implementation
-    
-    override fun onPowerModeChanged(newMode: PowerManager.PowerMode) {
-        Log.i(TAG, "Power mode changed to: $newMode")
-        
-        connectionScope.launch {
-            // Avoid rapid scan restarts by checking if we need to change scan behavior
-            val wasUsingDutyCycle = powerManager.shouldUseDutyCycle()
-            
-            // Update advertising with new power settings if server enabled
-            val serverEnabled = try { com.cirabit.android.ui.debug.DebugSettingsManager.getInstance().gattServerEnabled.value } catch (_: Exception) { true }
-            if (serverEnabled) {
-                serverManager.restartAdvertising()
-            } else {
-                serverManager.stop()
-            }
-            
-            // Only restart scanning if the duty cycle behavior changed
-            val nowUsingDutyCycle = powerManager.shouldUseDutyCycle()
-            if (wasUsingDutyCycle != nowUsingDutyCycle) {
-                Log.d(TAG, "Duty cycle behavior changed (${wasUsingDutyCycle} -> ${nowUsingDutyCycle}), restarting scan")
-                val clientEnabled = try { com.cirabit.android.ui.debug.DebugSettingsManager.getInstance().gattClientEnabled.value } catch (_: Exception) { true }
-                if (clientEnabled) {
-                    clientManager.restartScanning()
-                } else {
-                    clientManager.stop()
-                }
-            } else {
-                Log.d(TAG, "Duty cycle behavior unchanged, keeping existing scan state")
-            }
-            
-            // Enforce connection limits
-            enforceStrictLimits()
-        }
-    }
-    
-    override fun onScanStateChanged(shouldScan: Boolean) {
-        clientManager.onScanStateChanged(shouldScan)
-    }
-    
-    // MARK: - Private Implementation - All moved to component managers
 }
 
 /**
  * Delegate interface for Bluetooth connection manager callbacks
  */
 interface BluetoothConnectionManagerDelegate {
-    fun onPacketReceived(packet: CirabitPacket, peerID: String, device: BluetoothDevice?)
+    fun onPacketReceived(
+        packet: CirabitPacket,
+        peerID: String,
+        device: BluetoothDevice?,
+        ingressLinkID: String
+    )
     fun onDeviceConnected(device: BluetoothDevice)
-    fun onDeviceDisconnected(device: BluetoothDevice)
+    fun onDeviceDisconnected(device: BluetoothDevice, linkID: String?, peerID: String?)
     fun onRSSIUpdated(deviceAddress: String, rssi: Int)
+    fun onGattClientWriteComplete(deviceAddress: String, linkID: String, status: Int) = Unit
+    fun onGattServerNotificationComplete(deviceAddress: String, linkID: String?, status: Int) = Unit
 }

@@ -15,29 +15,73 @@ import com.google.crypto.tink.integration.android.AndroidKeysetManager
  * Values are encrypted with key-specific associated data and persisted in regular SharedPreferences.
  * This avoids direct reliance on EncryptedSharedPreferences while keeping data at-rest encrypted.
  */
-class SecureKeyValueStore(
-    context: Context,
-    prefsName: String
+class SecureKeyValueStore private constructor(
+    private val storage: SharedPreferences,
+    /** Null only for test-only plaintext storage (see [forTesting]). */
+    private val aead: Aead?
 ) {
     companion object {
         private const val TAG = "SecureKeyValueStore"
         private const val KEYSET_PREFS = "cirabit_tink_keysets"
         private const val KEYSET_NAME_PREFIX = "cirabit_aead_"
         private const val MASTER_KEY_URI = "android-keystore://cirabit_tink_master_key"
+
+        private fun buildAead(context: Context, prefsName: String): Aead {
+            AeadConfig.register()
+            val keysetManager = AndroidKeysetManager.Builder()
+                .withSharedPref(context, KEYSET_NAME_PREFIX + prefsName, KEYSET_PREFS)
+                .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
+                .withMasterKeyUri(MASTER_KEY_URI)
+                .build()
+            return keysetManager.keysetHandle.getPrimitive(Aead::class.java)
+        }
+
+        /** Test-only: wraps plain SharedPreferences without encryption. */
+        internal fun forTesting(prefs: SharedPreferences): SecureKeyValueStore =
+            SecureKeyValueStore(prefs, null)
     }
 
-    private val storage: SharedPreferences =
-        context.getSharedPreferences("${prefsName}_tink_store", Context.MODE_PRIVATE)
+    constructor(context: Context, prefsName: String) : this(
+        context.getSharedPreferences("${prefsName}_tink_store", Context.MODE_PRIVATE),
+        buildAead(context, prefsName)
+    )
 
-    private val aead: Aead = run {
-        AeadConfig.register()
-        val keysetManager = AndroidKeysetManager.Builder()
-            .withSharedPref(context, KEYSET_NAME_PREFIX + prefsName, KEYSET_PREFS)
-            .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
-            .withMasterKeyUri(MASTER_KEY_URI)
-            .build()
-        keysetManager.keysetHandle.getPrimitive(Aead::class.java)
+    /**
+     * Batched edit that is written in a single SharedPreferences transaction.
+     * Use [Editor.commit] when the caller needs a durable, atomic write.
+     */
+    inner class Editor internal constructor() {
+        private val delegate = storage.edit()
+
+        fun putString(key: String, value: String?): Editor {
+            if (value == null) {
+                delegate.remove(key)
+            } else {
+                val encrypted = encryptString(key, value)
+                    ?: throw IllegalStateException("Failed to encrypt value for key '$key'")
+                delegate.putString(key, encrypted)
+            }
+            return this
+        }
+
+        fun putStringSet(key: String, value: Set<String>): Editor = putString(key, packStringSet(value))
+
+        fun remove(key: String): Editor {
+            delegate.remove(key)
+            return this
+        }
+
+        fun clear(): Editor {
+            delegate.clear()
+            return this
+        }
+
+        fun commit(): Boolean = delegate.commit()
+
+        fun apply() = delegate.apply()
     }
+
+    fun edit(): Editor = Editor()
 
     fun getString(key: String, defaultValue: String? = null): String? {
         val encrypted = storage.getString(key, null) ?: return defaultValue
@@ -75,7 +119,7 @@ class SecureKeyValueStore(
     private fun encryptString(key: String, value: String): String? {
         return try {
             val associatedData = key.toByteArray(Charsets.UTF_8)
-            val ciphertext = aead.encrypt(value.toByteArray(Charsets.UTF_8), associatedData)
+            val ciphertext = (aead ?: return value).encrypt(value.toByteArray(Charsets.UTF_8), associatedData)
             Base64.encodeToString(ciphertext, Base64.NO_WRAP)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to encrypt value for key '$key': ${e.message}")
@@ -87,7 +131,7 @@ class SecureKeyValueStore(
         return try {
             val associatedData = key.toByteArray(Charsets.UTF_8)
             val ciphertext = Base64.decode(encodedCiphertext, Base64.NO_WRAP)
-            val plaintext = aead.decrypt(ciphertext, associatedData)
+            val plaintext = (aead ?: return encodedCiphertext).decrypt(ciphertext, associatedData)
             String(plaintext, Charsets.UTF_8)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to decrypt value for key '$key': ${e.message}")

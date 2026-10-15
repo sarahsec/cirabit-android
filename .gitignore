@@ -7,6 +7,7 @@ build/
 !*/build/intermediates/
 local.properties
 .gradle/
+.kotlin/
 captures/
 .externalNativeBuild/
 debug_keystore/
@@ -41,6 +42,11 @@ dependency-reduced-pom.xml
 # Linters
 .lint/
 
+# Python test tooling
+**/__pycache__/
+*.py[cod]
+release-gate-results/
+
 # Other
 *.log
 .cxx/
@@ -52,6 +58,7 @@ gen/
 *~
 *.swp
 *.lock
+!tools/arti-build/Cargo.lock
 .goosehints
 
 # Google services
@@ -95,3 +102,7 @@ CLAUDE.md
 .copilot/
 codex.md
 .codex/
+.reproducible-build/
+
+# JVM heap dumps (a Gradle daemon OOM drops these in the repo root)
+*.hprof
