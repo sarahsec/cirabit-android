@@ -6,6 +6,7 @@ import com.cirabit.android.model.FragmentPayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -294,6 +295,46 @@ class FragmentManagerTest {
             ).encode(),
             ttl = 7u
         )
+    }
+
+    @Test
+    fun `fragment payload refuses UInt16 truncation`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            FragmentPayload(
+                fragmentID = ByteArray(8) { 2 },
+                index = 0,
+                total = 65_536,
+                originalType = MessageType.NOISE_ENCRYPTED.value,
+                data = byteArrayOf(1)
+            ).encode()
+        }
+    }
+
+    @Test
+    fun `generic public packet retains a 257 fragment outbound plan`() {
+        val randomPayload = ByteArray(180 * 1024).also { Random(0xB17C4A7).nextBytes(it) }
+
+        fun plan(contentSize: Int): List<CirabitPacket> = fragmentManager.createFragments(
+            CirabitPacket(
+                version = 2u,
+                type = MessageType.FILE_TRANSFER.value,
+                senderID = hexStringToByteArray(senderID),
+                recipientID = com.cirabit.android.protocol.SpecialRecipients.BROADCAST,
+                timestamp = 1u,
+                payload = randomPayload.copyOf(contentSize),
+                signature = ByteArray(64) { 7 },
+                ttl = 7u
+            )
+        )
+
+        var low = 1
+        var high = randomPayload.size
+        while (low < high) {
+            val mid = low + (high - low) / 2
+            if (plan(mid).size >= 257) high = mid else low = mid + 1
+        }
+
+        assertEquals(257, plan(low).size)
     }
 
     private fun hexStringToByteArray(hexString: String): ByteArray {

@@ -37,7 +37,7 @@ object NostrProtocol {
         val rumorId = rumorBase.computeEventIdHex()
         val rumor = rumorBase.copy(id = rumorId)
         
-        // 2. Seal the rumor (kind 13) signed by sender, timestamp randomized up to 2 days
+        // 2. Seal the rumor with 2 hours of slack inside iOS's 24-hour lookback.
         val sealedEvent = createSeal(
             rumor = rumor,
             recipientPubkey = recipientPubkey,
@@ -73,14 +73,24 @@ object NostrProtocol {
                 }
             
             Log.v(TAG, "Successfully unwrapped gift wrap from: ${seal.pubkey.take(16)}...")
-            
+
+            if (seal.kind != NostrKind.SEAL || !seal.isValidSignature()) {
+                Log.w(TAG, "❌ Invalid NIP-17 seal signature")
+                return null
+            }
+
             // 2. Open the seal
             val rumor = openSeal(seal, recipientIdentity.privateKeyHex)
                 ?: run {
                     Log.w(TAG, "❌ Failed to open seal")
                     return null
                 }
-            
+
+            if (seal.pubkey != rumor.pubkey) {
+                Log.w(TAG, "❌ NIP-17 seal pubkey does not match rumor pubkey")
+                return null
+            }
+
             Log.v(TAG, "Successfully opened seal")
             
             Triple(rumor.content, rumor.pubkey, rumor.createdAt)
@@ -227,7 +237,7 @@ object NostrProtocol {
             content = encrypted
         )
         
-        // Sign with the ephemeral key
+        // NIP-17 requires the seal to be signed by the sender identity key.
         return seal.sign(senderPrivateKey)
     }
     
@@ -264,8 +274,6 @@ object NostrProtocol {
         giftWrap: NostrEvent,
         recipientPrivateKey: String
     ): NostrEvent? {
-        Log.d(TAG, "Unwrapping gift wrap; content prefix='${giftWrap.content.take(3)}' length=${giftWrap.content.length}")
-        
         return try {
             val decrypted = NostrCrypto.decryptNIP44(
                 ciphertext = giftWrap.content,

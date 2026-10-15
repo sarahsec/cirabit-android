@@ -1,20 +1,20 @@
 package com.cirabit.android.onboarding
 
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
+import com.cirabit.android.ui.theme.CirabitFontFamily
 import com.cirabit.android.R
 
 /**
@@ -26,6 +26,7 @@ fun BluetoothCheckScreen(
     status: BluetoothStatus,
     onEnableBluetooth: () -> Unit,
     onRetry: () -> Unit,
+    onSkip: () -> Unit,
     isLoading: Boolean = false
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -39,13 +40,15 @@ fun BluetoothCheckScreen(
                 BluetoothDisabledContent(
                     onEnableBluetooth = onEnableBluetooth,
                     onRetry = onRetry,
+                    onSkip = onSkip,
                     colorScheme = colorScheme,
                     isLoading = isLoading
                 )
             }
             BluetoothStatus.NOT_SUPPORTED -> {
                 BluetoothNotSupportedContent(
-                    colorScheme = colorScheme
+                    colorScheme = colorScheme,
+                    onSkip = onSkip
                 )
             }
             BluetoothStatus.ENABLED -> {
@@ -61,6 +64,7 @@ fun BluetoothCheckScreen(
 private fun BluetoothDisabledContent(
     onEnableBluetooth: () -> Unit,
     onRetry: () -> Unit,
+    onSkip: () -> Unit,
     colorScheme: ColorScheme,
     isLoading: Boolean
 ) {
@@ -77,9 +81,9 @@ private fun BluetoothDisabledContent(
         )
 
         Text(
-            text = stringResource(R.string.bluetooth_required),
+            text = stringResource(R.string.bluetooth_recommended),
             style = MaterialTheme.typography.headlineSmall.copy(
-                fontFamily = FontFamily.Monospace,
+                fontFamily = CirabitFontFamily,
                 fontWeight = FontWeight.Bold,
                 color = colorScheme.primary
             ),
@@ -110,7 +114,7 @@ private fun BluetoothDisabledContent(
                     Text(
                         text = stringResource(R.string.bluetooth_needs_bullets),
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = CirabitFontFamily,
                         color = colorScheme.onSurface.copy(alpha = 0.8f)
                     )
                 )
@@ -134,27 +138,24 @@ private fun BluetoothDisabledContent(
                         Text(
                             text = stringResource(R.string.enable_bluetooth),
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = CirabitFontFamily,
                             fontWeight = FontWeight.Bold
                         ),
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
                 }
 
-                //Since we are automatically checking bluetooth state -- commented
-
-//                OutlinedButton(
-//                    onClick = onRetry,
-//                    modifier = Modifier.fillMaxWidth()
-//                ) {
-//                    Text(
-//                        text = "Check Again",
-//                        style = MaterialTheme.typography.bodyMedium.copy(
-//                            fontFamily = FontFamily.Monospace
-//                        ),
-//                        modifier = Modifier.padding(vertical = 4.dp)
-//                    )
-//                }
+                TextButton(
+                    onClick = onSkip,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = stringResource(R.string.skip),
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            color = colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    )
+                }
             }
         }
     }
@@ -162,7 +163,8 @@ private fun BluetoothDisabledContent(
 
 @Composable
 private fun BluetoothNotSupportedContent(
-    colorScheme: ColorScheme
+    colorScheme: ColorScheme,
+    onSkip: () -> Unit
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -185,7 +187,7 @@ private fun BluetoothNotSupportedContent(
         Text(
             text = stringResource(R.string.bluetooth_not_supported),
             style = MaterialTheme.typography.headlineSmall.copy(
-                fontFamily = FontFamily.Monospace,
+                fontFamily = CirabitFontFamily,
                 fontWeight = FontWeight.Bold,
                 color = colorScheme.error
             ),
@@ -202,12 +204,22 @@ private fun BluetoothNotSupportedContent(
             Text(
                 text = stringResource(R.string.bluetooth_unsupported_explanation),
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = CirabitFontFamily,
                     color = colorScheme.onSurface
                 ),
                 modifier = Modifier.padding(16.dp),
                 textAlign = TextAlign.Center
             )
+        }
+
+        Button(
+            onClick = onSkip,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = colorScheme.secondary
+            )
+        ) {
+            Text(text = stringResource(R.string.continue_btn))
         }
     }
 }
@@ -223,7 +235,7 @@ private fun BluetoothCheckingContent(
         Text(
             text = stringResource(R.string.app_name),
             style = MaterialTheme.typography.headlineLarge.copy(
-                fontFamily = FontFamily.Monospace,
+                fontFamily = CirabitFontFamily,
                 fontWeight = FontWeight.Bold,
                 color = colorScheme.primary
             ),
@@ -235,7 +247,7 @@ private fun BluetoothCheckingContent(
         Text(
             text = stringResource(R.string.checking_bluetooth_status),
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontFamily = FontFamily.Monospace,
+                fontFamily = CirabitFontFamily,
                 color = colorScheme.onSurface.copy(alpha = 0.7f)
             )
         )

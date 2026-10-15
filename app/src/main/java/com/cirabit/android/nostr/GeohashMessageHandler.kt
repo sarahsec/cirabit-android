@@ -3,8 +3,7 @@ package com.cirabit.android.nostr
 import android.app.Application
 import android.util.Log
 import com.cirabit.android.model.CirabitMessage
-import com.cirabit.android.ui.ChatState
-import com.cirabit.android.ui.MessageManager
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,11 +18,11 @@ import java.util.Date
  */
 class GeohashMessageHandler(
     private val application: Application,
-    private val state: ChatState,
-    private val messageManager: MessageManager,
     private val repo: GeohashRepository,
     private val scope: CoroutineScope,
-    private val dataManager: com.cirabit.android.ui.DataManager
+    private val dataManager: com.cirabit.android.ui.DataManager,
+    private val addChannelMessage: (String, CirabitMessage) -> Unit,
+    private val signatureVerificationDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     companion object { private const val TAG = "GeohashMessageHandler" }
 
@@ -44,11 +43,18 @@ class GeohashMessageHandler(
     }
 
     fun onEvent(event: NostrEvent, subscribedGeohash: String) {
-        scope.launch(Dispatchers.Default) {
+        scope.launch {
             try {
                 if (event.kind != NostrKind.EPHEMERAL_EVENT && event.kind != NostrKind.GEOHASH_PRESENCE) return@launch
                 val tagGeo = event.tags.firstOrNull { it.size >= 2 && it[0] == "g" }?.getOrNull(1)
                 if (tagGeo == null || !tagGeo.equals(subscribedGeohash, true)) return@launch
+                val hasValidSignature = withContext(signatureVerificationDispatcher) {
+                    event.isValidSignature()
+                }
+                if (!hasValidSignature) {
+                    Log.w(TAG, "Rejecting geohash event ${event.id.take(8)}... with invalid signature")
+                    return@launch
+                }
                 if (dedupe(event.id)) return@launch
 
                 // PoW validation (if enabled) - apply to chat messages primarily
@@ -59,22 +65,22 @@ class GeohashMessageHandler(
                     }
                 }
 
-                // Blocked users check (use injected DataManager which has loaded state)
-                if (dataManager.isGeohashUserBlocked(event.pubkey)) return@launch
+                // Normalize pubkey to lowercase for consistent blocking and storage
+                val pubkey = event.pubkey.lowercase()
 
-                // Update repository (participants, nickname, teleport)
-                // Update repository on a background-safe path; repository will post updates to LiveData
-                
+                // Blocked users check (use injected DataManager which has loaded state)
+                if (dataManager.isGeohashUserBlocked(pubkey)) return@launch
+
                 // Update participant count (last seen) on BOTH Presence (20001) and Chat (20000) events
                 if (event.kind == NostrKind.GEOHASH_PRESENCE || event.kind == NostrKind.EPHEMERAL_EVENT) {
-                    repo.updateParticipant(subscribedGeohash, event.pubkey, Date(event.createdAt * 1000L))
+                    repo.updateParticipant(subscribedGeohash, pubkey, Date(event.createdAt * 1000L))
                 }
                 
-                event.tags.find { it.size >= 2 && it[0] == "n" }?.let { repo.cacheNickname(event.pubkey, it[1]) }
-                event.tags.find { it.size >= 2 && it[0] == "t" && it[1] == "teleport" }?.let { repo.markTeleported(event.pubkey) }
+                event.tags.find { it.size >= 2 && it[0] == "n" }?.let { repo.cacheNickname(pubkey, it[1]) }
+                event.tags.find { it.size >= 2 && it[0] == "t" && it[1] == "teleport" }?.let { repo.markTeleported(pubkey) }
                 // Register a geohash DM alias for this participant so MessageRouter can route DMs via Nostr
                 try {
-                    com.cirabit.android.nostr.GeohashAliasRegistry.put("nostr_${event.pubkey.take(16)}", event.pubkey)
+                    com.cirabit.android.nostr.GeohashAliasRegistry.put("nostr_${pubkey.take(16)}", pubkey)
                 } catch (_: Exception) { }
 
                 // Stop here for presence events - they don't produce chat messages
@@ -82,13 +88,13 @@ class GeohashMessageHandler(
 
                 // Skip our own events for message emission
                 val my = NostrIdentityBridge.deriveIdentity(subscribedGeohash, application)
-                if (my.publicKeyHex.equals(event.pubkey, true)) return@launch
+                if (my.publicKeyHex.equals(pubkey, true)) return@launch
 
                 val isTeleportPresence = event.tags.any { it.size >= 2 && it[0] == "t" && it[1] == "teleport" } &&
                                          event.content.trim().isEmpty()
                 if (isTeleportPresence) return@launch
 
-                val senderName = repo.displayNameForNostrPubkeyUI(event.pubkey)
+                val senderName = repo.displayNameForNostrPubkeyUI(pubkey)
                 val hasNonce = try { NostrProofOfWork.hasNonce(event) } catch (_: Exception) { false }
                 val msg = CirabitMessage(
                     id = event.id,
@@ -96,15 +102,16 @@ class GeohashMessageHandler(
                     content = event.content,
                     timestamp = Date(event.createdAt * 1000L),
                     isRelay = false,
-                    originalSender = repo.displayNameForNostrPubkey(event.pubkey),
-                    senderPeerID = "nostr:${event.pubkey.take(8)}",
+                    originalSender = repo.displayNameForNostrPubkey(pubkey),
+                    senderPeerID = "nostr:${pubkey.take(8)}",
+                    senderNostrPubkey = pubkey,
                     mentions = null,
                     channel = "#$subscribedGeohash",
                     powDifficulty = try {
                         if (hasNonce) NostrProofOfWork.calculateDifficulty(event.id).takeIf { it > 0 } else null
                     } catch (_: Exception) { null }
                 )
-                withContext(Dispatchers.Main) { messageManager.addChannelMessage("geo:$subscribedGeohash", msg) }
+                addChannelMessage("geo:$subscribedGeohash", msg)
             } catch (e: Exception) {
                 Log.e(TAG, "onEvent error: ${e.message}")
             }
