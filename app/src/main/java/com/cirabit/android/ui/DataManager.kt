@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.cirabit.android.geohash.DEFAULT_LIVE_LOCATION_ENABLED
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlin.random.Random
 
 /**
@@ -87,8 +86,7 @@ class DataManager(private val context: Context) {
         // Load channel creators
         val creatorsJson = prefs.getString("channel_creators", "{}")
         try {
-            val creatorsType = object : TypeToken<Map<String, String>>() {}.type
-            val creatorsMap: Map<String, String>? = gson.fromJson(creatorsJson, creatorsType)
+            val creatorsMap = gson.fromJson(creatorsJson, Map::class.java) as? Map<String, String>
             creatorsMap?.let { _channelCreators.putAll(it) }
         } catch (e: Exception) {
             // Ignore parsing errors
@@ -242,11 +240,13 @@ class DataManager(private val context: Context) {
         prefs.edit().putStringSet("geohash_blocked_users", _geohashBlockedUsers).apply()
     }
     
+    @Synchronized
     fun addGeohashBlockedUser(pubkeyHex: String) {
         _geohashBlockedUsers.add(pubkeyHex)
         saveGeohashBlockedUsers()
     }
     
+    @Synchronized
     fun removeGeohashBlockedUser(pubkeyHex: String) {
         _geohashBlockedUsers.remove(pubkeyHex)
         saveGeohashBlockedUsers()

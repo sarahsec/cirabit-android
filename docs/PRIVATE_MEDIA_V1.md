@@ -1,6 +1,6 @@
 # Private media v1 interoperability and migration
 
-Private media reuses the canonical `BitchatFilePacket` TLV. A capable sender
+Private media reuses the canonical `CirabitFilePacket` TLV. A capable sender
 wraps the complete encoded file TLV as Noise payload type `0x20`, encrypts it
 for the recipient, and only then fragments the final outer packet.
 
@@ -8,7 +8,7 @@ for the recipient, and only then fragments the final outer packet.
 
 - Outer packet type: `MessageType.NOISE_ENCRYPTED` (`0x11`).
 - Decrypted Noise payload type: `NoisePayloadType.FILE_TRANSFER` (`0x20`).
-- Noise payload data: one complete encoded `BitchatFilePacket`.
+- Noise payload data: one complete encoded `CirabitFilePacket`.
 - Outer recipient: the target peer ID; never broadcast for private media.
 
 Prerelease iOS builds of #1434 briefly emitted the inner file type as `0x09`.

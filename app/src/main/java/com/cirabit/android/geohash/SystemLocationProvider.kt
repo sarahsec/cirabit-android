@@ -9,7 +9,6 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Looper
 import android.os.CancellationSignal
 import android.util.Log
 import androidx.core.app.ActivityCompat
@@ -104,7 +103,7 @@ internal class SystemLocationProvider(private val context: Context) : LocationPr
                             throw e
                         }
                     } else {
-                        // For older versions, register a temporary listener and stop after first fix.
+                        // For older versions, use requestSingleUpdate with timeout mechanism
                         val timeoutRunnable = Runnable {
                             Log.w(TAG, "Location request timed out")
                             synchronized(activeOneShotListeners) {
@@ -146,14 +145,8 @@ internal class SystemLocationProvider(private val context: Context) : LocationPr
                             activeOneShotListeners[callback] = listener
                             activeOneShotRunnables[callback] = timeoutRunnable
                         }
-
-                        locationManager.requestLocationUpdates(
-                            provider,
-                            0L,
-                            0f,
-                            listener,
-                            Looper.getMainLooper()
-                        )
+                        
+                        locationManager.requestSingleUpdate(provider, listener, null)
                         handler.postDelayed(timeoutRunnable, 30000L) // 30s timeout
                     }
                     providerFound = true

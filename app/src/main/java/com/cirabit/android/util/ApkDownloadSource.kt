@@ -10,7 +10,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 /**
- * A trusted location that serves the latest signed universal BitChat APK.
+ * A trusted location that serves the latest signed universal Cirabit APK.
  *
  * Sources are tried in order. A source may list compatibility filenames, which
  * are only used when the preferred asset is absent. Adding a mirror should only
@@ -48,11 +48,11 @@ internal object DefaultApkDownloadSources {
             id = GITHUB_ID,
             displayName = "GitHub Releases",
             latestApkUrls = listOf(
-                "https://github.com/permissionlesstech/bitchat-android/releases/latest/" +
-                    "download/bitchat-android-universal.apk",
+                "https://github.com/permissionlesstech/cirabit-android/releases/latest/" +
+                    "download/cirabit-android-universal.apk",
                 // Releases published before the stable asset-name rollout use
                 // this filename. Remove when supported releases all use the primary URL.
-                "https://github.com/permissionlesstech/bitchat-android/releases/latest/" +
+                "https://github.com/permissionlesstech/cirabit-android/releases/latest/" +
                     "download/app-universal-release.apk"
             )
         )
@@ -85,7 +85,7 @@ enum class ApkDownloadFailureReason(@StringRes val messageRes: Int) {
     UntrustedKey(R.string.prepare_apk_error_untrusted_key),
     NotUniversal(R.string.prepare_apk_error_not_universal),
     ApkUnreadable(R.string.prepare_apk_error_apk_unreadable),
-    NotCirabit(R.string.prepare_apk_error_not_bitchat),
+    NotCirabit(R.string.prepare_apk_error_not_cirabit),
     NoVersion(R.string.prepare_apk_error_no_version),
     SourceFailed(R.string.prepare_apk_error_source_failed),
     AllSourcesFailed(R.string.prepare_apk_error_all_sources);
@@ -262,13 +262,55 @@ internal fun parseContentRange(value: String?): ContentRange? {
     val start = match.groupValues[1].toLongOrNull() ?: return null
     val end = match.groupValues[2].toLongOrNull() ?: return null
     if (end < start) return null
-    val total = match.groupValues[3].takeUnless { it == "*" }?.toLongOrNull()
+    val totalText = match.groupValues[3]
+    val total = if (totalText == "*") null else totalText.toLongOrNull() ?: return null
     if (total != null && end >= total) return null
     return ContentRange(
         start = start,
         endInclusive = end,
         total = total
     )
+}
+
+internal data class ApkResponseSize(val fileSize: Long, val responseBytes: Long?)
+
+/** Validate advertised sizes before opening a partial APK for append. */
+internal fun apkResponseSize(
+    range: ContentRange?,
+    contentLength: Long,
+    resumedBytes: Long,
+    previousSize: Long?
+): ApkResponseSize? {
+    if (resumedBytes < 0L || contentLength < -1L) return null
+    if (range != null && (range.start != resumedBytes || range.endInclusive < range.start)) return null
+    val rangeBytes = range?.let {
+        runCatching { Math.addExact(it.endInclusive - it.start, 1L) }.getOrNull() ?: return null
+    }
+    if (rangeBytes != null && contentLength >= 0L && contentLength != rangeBytes) return null
+    val responseBytes = rangeBytes ?: contentLength.takeIf { it >= 0L }
+    val fileSize = range?.total ?: if (contentLength >= 0L) {
+        runCatching { Math.addExact(resumedBytes, contentLength) }.getOrNull() ?: return null
+    } else {
+        previousSize?.takeIf { range != null && it > 0L } ?: 0L
+    }
+    if (fileSize > 0L && resumedBytes > fileSize) return null
+    val limit = responseBytes ?: fileSize.takeIf { it > 0L }?.let { it - resumedBytes }
+    return ApkResponseSize(fileSize, limit)
+}
+
+/** Count response bytes before disk writes, including chunked responses. */
+internal class ApkResponseByteBudget(private val limit: Long?) {
+    private var received = 0L
+
+    fun accept(count: Int): Boolean {
+        if (count < 0 || received > Long.MAX_VALUE - count) return false
+        val next = received + count
+        if (limit != null && next > limit) return false
+        received = next
+        return true
+    }
+
+    fun isComplete(): Boolean = limit == null || received == limit
 }
 
 internal fun parseUnsatisfiedContentRangeTotal(value: String?): Long? {

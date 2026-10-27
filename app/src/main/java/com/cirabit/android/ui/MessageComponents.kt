@@ -1,9 +1,5 @@
 package com.cirabit.android.ui
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Surface
-import androidx.compose.ui.text.font.FontFamily
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -21,8 +17,6 @@ import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,18 +80,16 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cirabit.android.model.CirabitMessage
-import com.cirabit.android.model.DeliveryStatus
-import com.cirabit.android.mesh.BluetoothMeshService
-import java.text.SimpleDateFormat
-import java.util.*
-import com.cirabit.android.ui.media.VoiceNotePlayer
-import com.cirabit.android.ui.media.FileMessageItem
-import com.cirabit.android.model.CirabitMessageType
 import com.cirabit.android.ui.theme.CirabitFontFamily
 import com.cirabit.android.R
 import com.cirabit.android.core.ui.component.text.AnnotatedClickableText
 import com.cirabit.android.mesh.MeshService
+import com.cirabit.android.model.CirabitMessage
+import com.cirabit.android.model.CirabitMessageType
+import com.cirabit.android.model.DeliveryStatus
+import com.cirabit.android.spam.SpamFilter
+import com.cirabit.android.spam.SpamVerdict
+import com.cirabit.android.ui.media.FileMessageItem
 import com.cirabit.android.ui.theme.BASE_FONT_SIZE
 import com.cirabit.android.ui.theme.CirabitMotion
 import com.cirabit.android.ui.theme.ChatUiModeManager
@@ -107,12 +99,11 @@ import com.cirabit.android.ui.theme.MessageBodyTextStyle
 import com.cirabit.android.ui.theme.MessageSenderTextStyle
 import com.cirabit.android.ui.theme.colorForPeer
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
 import java.util.Locale
 
 
 // VoiceNotePlayer moved to com.cirabit.android.ui.media.VoiceNotePlayer
-
-private val DEFAULT_REACTION_EMOJIS = listOf("👍", "❤️", "😂", "😮", "😢", "😡")
 
 /**
  * Message display components for ChatScreen
@@ -170,6 +161,9 @@ internal const val MaxAnimatedArrivals = 6
 internal class MessageArrivalTracker {
     val known = HashSet<String>()
     var seeded = false
+    var previousSize = 0
+    var previousFirstID: String? = null
+    var previousLastID: String? = null
 }
 
 /**
@@ -180,12 +174,28 @@ internal class MessageArrivalTracker {
  * have missed its cue.
  */
 internal fun MessageArrivalTracker.arrivals(messages: List<CirabitMessage>): Set<String> {
+    val oldSize = previousSize
+    // Ordinary arrivals append to an unchanged timeline. Only inspect the new suffix in that case.
+    // Replacements, clears, and retention trimming use the full reconciliation path below.
+    val appended = seeded && oldSize > 0 && messages.size > oldSize &&
+        messages.first().id == previousFirstID && messages[oldSize - 1].id == previousLastID
+    previousSize = messages.size
+    previousFirstID = messages.firstOrNull()?.id
+    previousLastID = messages.lastOrNull()?.id
+
     if (!seeded) {
         // First load adopts everything silently. A whole screenful animating on open reads as a
         // glitch, not a flourish.
         messages.forEach { known.add(it.id) }
         seeded = true
         return emptySet()
+    }
+
+    if (appended) {
+        val added = messages.subList(oldSize, messages.size).filter { known.add(it.id) }
+        return if (added.size in 1..MaxAnimatedArrivals) {
+            added.mapTo(HashSet(added.size)) { it.id }
+        } else emptySet()
     }
 
     // A list with nothing in common with the last one is a different conversation, not a burst of
@@ -213,9 +223,7 @@ internal fun MessageArrivalTracker.arrivals(messages: List<CirabitMessage>): Set
 @Composable
 fun MessagesList(
     messages: List<CirabitMessage>,
-    messageReactions: Map<String, Map<String, Set<String>>> = emptyMap(),
     currentUserNickname: String,
-    currentUserPeerID: String,
     meshService: MeshService,
     modifier: Modifier = Modifier,
     mentionPeerIdentities: Map<String, PeerIdentity>? = null,
@@ -238,17 +246,17 @@ fun MessagesList(
     onScrolledUpChanged: ((Boolean) -> Unit)? = null,
     onNicknameClick: ((String) -> Unit)? = null,
     onMessageLongPress: ((CirabitMessage) -> Unit)? = null,
-    onReactionClick: ((CirabitMessage, String) -> Unit)? = null,
     onCancelTransfer: ((CirabitMessage) -> Unit)? = null,
     onImageClick: ((String, List<String>, Int) -> Unit)? = null
 ) {
-    val resolvedMentionPeerIdentities = remember(messages, mentionPeerIdentities) {
-        mentionPeerIdentities ?: buildMentionPeerIdentityMap(messages)
-    }
+    val resolvedMentionPeerIdentities = mentionPeerIdentities
+        ?: rememberMentionPeerIdentities(messages, conversationKey = conversationKey)
 
     // Collected once here so individual rows never subscribe to the preference flow; a mode
     // switch simply recomposes the list against the new layout.
     val bubbles by ChatUiModeManager.modeFlow.collectAsState()
+    // Spam let through by the debug bypass; empty unless that debug setting is on.
+    val spamFlags by SpamFilter.shared.flagged.collectAsState()
 
     // A fresh scroll position per conversation. Sharing one state meant a switch inherited the
     // previous channel's offset and then had to correct itself, which is what the jump was.
@@ -264,8 +272,11 @@ fun MessagesList(
     var hasScrolledToInitialPosition by remember(conversationKey) { mutableStateOf(false) }
     var followIncomingMessages by remember(conversationKey) { mutableStateOf(true) }
     
-    // Smart scroll: auto-scroll to bottom for initial load, then follow unless user scrolls away
-    LaunchedEffect(messages.size) {
+    // Smart scroll: auto-scroll to bottom for initial load, then follow unless user scrolls away.
+    //
+    // Keyed on the newest message as well as the count: a timeline at its retention cap evicts its
+    // oldest message for every arrival, so its size stops changing while messages keep coming in.
+    LaunchedEffect(conversationKey, messages.size, messages.lastOrNull()?.id) {
         if (messages.isNotEmpty()) {
             val isFirstLoad = !hasScrolledToInitialPosition
             if (isFirstLoad || followIncomingMessages) {
@@ -374,21 +385,19 @@ fun MessagesList(
 
             MessageItem(
                 message = message,
-                messageReactions = messageReactions[message.id] ?: emptyMap(),
                 messages = messages,
                 currentUserNickname = currentUserNickname,
-                currentUserPeerID = currentUserPeerID,
                 meshService = meshService,
                 mentionPeerIdentities = resolvedMentionPeerIdentities,
                 showSender = !isGrouped,
                 bubbles = bubbles.isBubbles,
+                spamVerdict = spamFlags[message.id],
                 topSpacing = MessageGrouping.topSpacingFor(
                     isGrouped = isGrouped,
                     isFirstInList = originalIndex == 0
                 ),
                 onNicknameClick = onNicknameClick,
                 onMessageLongPress = onMessageLongPress,
-                onReactionClick = onReactionClick,
                 onCancelTransfer = onCancelTransfer,
                 onImageClick = onImageClick,
                 modifier = Modifier
@@ -411,29 +420,36 @@ fun MessagesList(
 @Composable
 fun MessageItem(
     message: CirabitMessage,
-    messageReactions: Map<String, Set<String>> = emptyMap(),
     currentUserNickname: String,
-    currentUserPeerID: String,
     meshService: MeshService,
     messages: List<CirabitMessage> = emptyList(),
     mentionPeerIdentities: Map<String, PeerIdentity> = emptyMap(),
     showSender: Boolean = true,
     bubbles: Boolean = false,
+    /** Set when the spam filter's debug bypass let this message through; tints the row red. */
+    spamVerdict: SpamVerdict? = null,
     topSpacing: Dp = 0.dp,
     onNicknameClick: ((String) -> Unit)? = null,
     onMessageLongPress: ((CirabitMessage) -> Unit)? = null,
-    onReactionClick: ((CirabitMessage, String) -> Unit)? = null,
     onCancelTransfer: ((CirabitMessage) -> Unit)? = null,
     onImageClick: ((String, List<String>, Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val timeFormatter = remember { SimpleDateFormat(CHAT_TIMESTAMP_PATTERN, Locale.getDefault()) }
+    val spamModifier = if (spamVerdict != null) {
+        Modifier
+            .background(colorScheme.error.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+    } else {
+        Modifier
+    }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = topSpacing),
+            .padding(top = topSpacing)
+            .then(spamModifier),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -499,16 +515,27 @@ fun MessageItem(
         }
 
         // Link previews removed; links are now highlighted inline and clickable within the message text
-        if (messageReactions.isNotEmpty()) {
-            MessageReactionRow(
-                reactions = messageReactions,
-                currentUserPeerID = currentUserPeerID,
-                onReactionTap = { emoji ->
-                    onReactionClick?.invoke(message, emoji)
-                }
+
+        if (spamVerdict != null) {
+            Text(
+                text = "spam filter would hide this: ${spamVerdict.debugLabel()}",
+                fontFamily = CirabitFontFamily,
+                fontSize = 11.sp,
+                color = colorScheme.error,
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
     }
+}
+
+private fun SpamVerdict.debugLabel(): String = when (this) {
+    SpamVerdict.ALLOWED -> "allowed"
+    SpamVerdict.MESSAGE_RATE -> "too many messages"
+    SpamVerdict.CHARACTER_RATE -> "too many characters"
+    SpamVerdict.LINK_RATE -> "too many links"
+    SpamVerdict.REPEATED_MESSAGE -> "repeated message"
+    SpamVerdict.REPEATED_ACROSS_USERS -> "same text from other users"
+    SpamVerdict.REPEATED_CHARACTERS -> "repeated characters"
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -619,16 +646,19 @@ fun MessageItem(
             )
 
             // Try to load the file packet from the path
-            val fileMetadata = try {
+            val packet = try {
                 val file = java.io.File(path)
                 if (file.exists()) {
-                    Triple(
-                        file.name,
-                        file.length(),
-                        com.cirabit.android.features.file.FileUtils.getMimeTypeFromExtension(file.name)
+                    // Create a temporary CirabitFilePacket for display
+                    // In a real implementation, this would be stored with the packet metadata
+                    com.cirabit.android.model.CirabitFilePacket(
+                        fileName = file.name,
+                        fileSize = file.length(),
+                        mimeType = com.cirabit.android.features.file.FileUtils.getMimeTypeFromExtension(file.name),
+                        content = file.readBytes()
                     )
                 } else null
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 null
             }
 
@@ -641,22 +671,18 @@ fun MessageItem(
                 }
             ) {
                 Box {
-                    if (fileMetadata != null) {
-                        val (fileName, fileSize, mimeType) = fileMetadata
+                    if (packet != null) {
                         if (overrideProgress != null) {
                             // Show sending animation while in-flight
                             com.cirabit.android.ui.media.FileSendingAnimation(
-                                fileName = fileName,
+                                fileName = packet.fileName,
                                 progress = overrideProgress,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
                             // Static file display with open/save dialog
                             FileMessageItem(
-                                fileName = fileName,
-                                fileSize = fileSize,
-                                mimeType = mimeType,
-                                filePath = path,
+                                packet = packet,
                                 onFileClick = {
                                     // handled inside FileMessageItem via dialog
                                 }
@@ -757,79 +783,6 @@ fun MessageItem(
             onMessageLongPress = onMessageLongPress,
             modifier = modifier,
         )
-    }
-}
-
-@Composable
-fun MessageReactionPicker(
-    isVisible: Boolean,
-    onDismiss: () -> Unit,
-    onEmojiSelected: (String) -> Unit
-) {
-    if (!isVisible) return
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "React to message",
-                fontFamily = FontFamily.Monospace
-            )
-        },
-        text = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                DEFAULT_REACTION_EMOJIS.forEach { emoji ->
-                    TextButton(onClick = { onEmojiSelected(emoji) }) {
-                        Text(
-                            text = emoji,
-                            fontSize = 24.sp
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {}
-    )
-}
-
-@Composable
-private fun MessageReactionRow(
-    reactions: Map<String, Set<String>>,
-    currentUserPeerID: String,
-    onReactionTap: (String) -> Unit
-) {
-    val colorScheme = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp),
-        horizontalArrangement = Arrangement.Start
-    ) {
-        reactions.toSortedMap().forEach { (emoji, peers) ->
-            val hasMine = peers.contains(currentUserPeerID)
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = if (hasMine) colorScheme.primary.copy(alpha = 0.2f) else colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = if (hasMine) colorScheme.primary else colorScheme.outline.copy(alpha = 0.4f)
-                ),
-                modifier = Modifier
-                    .padding(end = 6.dp)
-                    .clickable { onReactionTap(emoji) }
-            ) {
-                Text(
-                    text = "$emoji ${peers.size}",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = colorScheme.onSurface
-                )
-            }
-        }
     }
 }
 

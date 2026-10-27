@@ -13,9 +13,6 @@ interface MeshService {
     fun stopServices()
 
     fun sendMessage(content: String, mentions: List<String> = emptyList(), channel: String? = null)
-    /** Cirabit: send with a caller-pinned timestamp so the local echo ID matches the wire packet ID. */
-    fun sendMessage(content: String, mentions: List<String>, channel: String?, timestampMs: Long?) =
-        sendMessage(content, mentions, channel)
     fun sendPrivateMessage(content: String, recipientPeerID: String, recipientNickname: String, messageID: String? = null)
     fun sendReadReceipt(messageID: String, recipientPeerID: String, readerNickname: String)
     fun sendDeliveryAck(messageID: String, recipientPeerID: String) {}
@@ -23,8 +20,6 @@ interface MeshService {
     fun sendVerifyChallenge(peerID: String, noiseKeyHex: String, nonceA: ByteArray)
     fun sendVerifyResponse(peerID: String, noiseKeyHex: String, nonceA: ByteArray)
     fun sendFileBroadcast(file: CirabitFilePacket)
-    /** Cirabit: broadcast with a caller-pinned packet timestamp (stable file message IDs). */
-    fun sendFileBroadcast(file: CirabitFilePacket, timestampMs: Long?) = sendFileBroadcast(file)
     fun sendFilePrivate(recipientPeerID: String, file: CirabitFilePacket)
     fun sendVoiceFrame(recipientPeerID: String?, payload: ByteArray)
     fun prepareFilePrivate(
@@ -64,5 +59,6 @@ interface MeshService {
     fun getDebugStatus(): String
 
     fun clearAllInternalData()
-    fun clearAllEncryptionData()
+    /** Returns true only when every transport's persistent identity was wiped from disk. */
+    fun clearAllEncryptionData(): Boolean
 }

@@ -46,7 +46,6 @@ class CommandProcessorTest {
   @Before
   fun setup() {
     commandProcessor = CommandProcessor(
-      context = context,
       state = chatState,
       messageManager = messageManager,
       channelManager = channelManager,
@@ -120,7 +119,6 @@ class CommandProcessorTest {
     whenever(meshService.getPeerNicknames()).thenReturn(mapOf(peerID to "alice"))
 
     commandProcessor = CommandProcessor(
-      context = context,
       state = chatState,
       messageManager = messageManager,
       channelManager = channelManager,

@@ -158,7 +158,7 @@ class MeshForegroundService : Service() {
                 try { com.cirabit.android.services.MessageRouter.tryGetInstance()?.stopOutboxScheduler() } catch (_: Exception) { }
                 try { unifiedMeshService?.stopServices() ?: meshService?.stopServices() } catch (_: Exception) { }
                 try { MeshServiceHolder.clear() } catch (_: Exception) { }
-                try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
+                try { stopForeground(true) } catch (_: Exception) { }
                 clearMeshNotifications()
                 isInForeground = false
                 stopSelf()
@@ -168,7 +168,7 @@ class MeshForegroundService : Service() {
                 isShuttingDown = true
                 updateJob?.cancel()
                 updateJob = null
-                try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
+                try { stopForeground(true) } catch (_: Exception) { }
                 clearMeshNotifications()
                 isInForeground = false
                 // Fully stop all background activity, stop Tor (without changing setting), then kill the app
@@ -177,7 +177,7 @@ class MeshForegroundService : Service() {
                     mesh = unifiedMeshService,
                     notificationManager = notificationManager,
                     stopForeground = {
-                        try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
+                        try { stopForeground(true) } catch (_: Exception) { }
                         isInForeground = false
                     },
                     stopService = { stopSelf() }
@@ -246,7 +246,7 @@ class MeshForegroundService : Service() {
             }
         } else if (force) {
             // If disabled and forced, make sure to remove any prior foreground state
-            try { stopForeground(Service.STOP_FOREGROUND_DETACH) } catch (_: Exception) { }
+            try { stopForeground(false) } catch (_: Exception) { }
             clearMeshNotifications()
             isInForeground = false
             lastNotifiedPeerCount = null
@@ -373,7 +373,7 @@ class MeshForegroundService : Service() {
         try { serviceJob.cancel() } catch (_: Exception) { }
         // Best-effort ensure we are not marked foreground
         if (isInForeground) {
-            try { stopForeground(Service.STOP_FOREGROUND_REMOVE) } catch (_: Exception) { }
+            try { stopForeground(true) } catch (_: Exception) { }
             isInForeground = false
         }
         super.onDestroy()

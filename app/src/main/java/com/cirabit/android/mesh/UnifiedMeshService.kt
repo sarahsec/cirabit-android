@@ -101,13 +101,6 @@ class UnifiedMeshService(
         }
     }
 
-    override fun sendMessage(content: String, mentions: List<String>, channel: String?, timestampMs: Long?) {
-        when {
-            isBleEnabled() -> bluetooth.sendMessage(content, mentions, channel, timestampMs)
-            else -> wifiService()?.sendMessage(content, mentions, channel)
-        }
-    }
-
     override fun sendPrivateMessage(
         content: String,
         recipientPeerID: String,
@@ -160,13 +153,6 @@ class UnifiedMeshService(
     override fun sendFileBroadcast(file: CirabitFilePacket) {
         when {
             isBleEnabled() -> bluetooth.sendFileBroadcast(file)
-            else -> wifiService()?.sendFileBroadcast(file)
-        }
-    }
-
-    override fun sendFileBroadcast(file: CirabitFilePacket, timestampMs: Long?) {
-        when {
-            isBleEnabled() -> bluetooth.sendFileBroadcast(file, timestampMs)
             else -> wifiService()?.sendFileBroadcast(file)
         }
     }
@@ -394,9 +380,10 @@ class UnifiedMeshService(
         try { wifiService()?.clearAllInternalData() } catch (_: Exception) { }
     }
 
-    override fun clearAllEncryptionData() {
-        try { bluetooth.clearAllEncryptionData() } catch (_: Exception) { }
-        try { wifiService()?.clearAllEncryptionData() } catch (_: Exception) { }
+    override fun clearAllEncryptionData(): Boolean {
+        val bluetoothCleared = try { bluetooth.clearAllEncryptionData() } catch (_: Exception) { false }
+        val wifiCleared = try { wifiService()?.clearAllEncryptionData() ?: true } catch (_: Exception) { false }
+        return bluetoothCleared && wifiCleared
     }
 
     override fun didReceiveMessage(message: CirabitMessage) {

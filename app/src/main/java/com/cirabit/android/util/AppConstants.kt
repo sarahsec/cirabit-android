@@ -39,10 +39,10 @@ object AppConstants {
         const val MAX_FRAGMENT_SIZE: Int = 469
         const val FRAGMENT_TIMEOUT_MS: Long = 30_000L
         const val CLEANUP_INTERVAL_MS: Long = 10_000L
-        const val MAX_FRAGMENTS_PER_ID: Int = 65_535
-        const val MAX_FRAGMENT_TOTAL_BYTES: Long = MAX_FRAGMENTS_PER_ID.toLong() * MAX_FRAGMENT_SIZE.toLong()
+        const val MAX_FRAGMENTS_PER_ID: Int = 256
+        const val MAX_FRAGMENT_TOTAL_BYTES: Int = 1_048_576
         const val MAX_ACTIVE_FRAGMENT_SETS: Int = 64
-        const val MAX_GLOBAL_FRAGMENT_TOTAL_BYTES: Long = 64L * 1024L * 1024L
+        const val MAX_GLOBAL_FRAGMENT_TOTAL_BYTES: Long = 4L * 1_048_576L
     }
 
     object Security {
@@ -67,7 +67,7 @@ object AppConstants {
 
     object Protocol {
         const val COMPRESSION_THRESHOLD_BYTES: Int = 100
-        const val MAX_PAYLOAD_LENGTH: Int = 10 * 1024 * 1024
+        const val MAX_PAYLOAD_LENGTH: Int = 10_485_760
     }
 
     object StoreForward {
@@ -126,17 +126,10 @@ object AppConstants {
         const val PERMISSION_FORCE_FINISH: String = "com.cirabit.android.permission.FORCE_FINISH"
     }
 
-    object Reactions {
-        const val PRIVATE_PENDING_MAX_PER_PEER: Int = 20
-        const val PRIVATE_PENDING_TTL_MS: Long = 60_000L
-    }
-
     object Media {
-        const val MAX_FILE_SIZE_BYTES: Long = 50L * 1024 * 1024
-        const val MAX_INCOMING_FILE_BYTES: Long = MAX_FILE_SIZE_BYTES
-        const val MAX_FILE_PACKET_OVERHEAD_BYTES: Long = 256L * 1024L
-        const val MIN_FREE_STORAGE_BUFFER_BYTES: Long = 5L * 1024 * 1024
-        const val MAX_IMAGE_PIXELS: Long = 4096L * 4096L
+        // A file is currently encoded into one protocol payload before BLE fragmentation.
+        // Reserve room for maximum filename/MIME TLVs and encryption envelope overhead.
+        const val MAX_FILE_SIZE_BYTES: Long = (10L * 1024 * 1024) - (132L * 1024)
     }
 
     object Router {

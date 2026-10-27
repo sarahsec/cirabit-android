@@ -9,15 +9,12 @@ import com.cirabit.android.model.PeerCapabilities
 import com.cirabit.android.protocol.MessagePadding
 import com.cirabit.android.model.RoutedPacket
 import com.cirabit.android.model.IdentityAnnouncement
-import com.cirabit.android.model.MessageReaction
 import com.cirabit.android.model.NoisePayload
 import com.cirabit.android.model.NoisePayloadType
 import com.cirabit.android.protocol.CirabitPacket
 import com.cirabit.android.protocol.MessageType
-import com.cirabit.android.protocol.MessageReactionCodec
 import com.cirabit.android.protocol.SpecialRecipients
 import com.cirabit.android.model.RequestSyncPacket
-import com.cirabit.android.sync.PacketIdUtil
 import com.cirabit.android.sync.GossipSyncManager
 import com.cirabit.android.util.toHexString
 import com.cirabit.android.services.VerificationService
@@ -129,16 +126,6 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
     
     // Delegate for message callbacks (maintains same interface)
     var delegate: BluetoothMeshDelegate? = null
-
-    private val privateReactionQueue = PrivateReactionQueueManager(
-        hasSession = { peerID -> encryptionService.hasEstablishedSession(peerID) },
-        initiateHandshake = { peerID -> messageHandler.delegate?.initiateNoiseHandshake(peerID) },
-        sendReaction = { peerID, reaction -> sendPrivateReactionPacket(peerID, reaction) },
-        onReactionDropped = { peerID, reaction, reason ->
-            Log.w(TAG, "Dropped pending private reaction for ${peerID.take(8)}... (${reaction.emoji} -> ${reaction.messageID}): $reason")
-            delegate?.didDropPendingReaction(reaction, peerID, reason)
-        }
-    )
     
     // Coroutines
     // Tracks whether this instance has been terminated via stopServices()
@@ -306,12 +293,6 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
                 )
                 // Send announcement and cached messages after key exchange
                 serviceScope.launch {
-                    Log.d(TAG, "Key exchange completed with $peerID; sending follow-ups")
-                    try {
-                        privateReactionQueue.flush(peerID)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to flush pending private reactions for $peerID: ${e.message}")
-                    }
                     delay(100)
                     sendAnnouncementToPeer(peerID)
                     
@@ -527,10 +508,6 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
                     } catch (_: Exception) { }
                 }
             }
-
-            override fun onMessageReactionReceived(reaction: MessageReaction, fromPeerID: String, timestampMs: Long) {
-                delegate?.didReceiveMessageReaction(reaction)
-            }
             
             override fun onChannelLeave(channel: String, fromPeer: String) {
                 delegate?.didReceiveChannelLeave(channel, fromPeer)
@@ -625,8 +602,8 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
                 return true
             }
             
-            override fun handleMessage(routed: RoutedPacket) {
-                serviceScope.launch { messageHandler.handleMessage(routed) }
+            override suspend fun handleMessage(routed: RoutedPacket) {
+                messageHandler.handleMessage(routed)
                 // Track broadcast messages for sync
                 try {
                     val pkt = routed.packet
@@ -637,22 +614,11 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
                 } catch (_: Exception) { }
             }
 
-            override fun handleMessageReaction(routed: RoutedPacket) {
-                serviceScope.launch { messageHandler.handleMessageReaction(routed) }
-                try {
-                    val pkt = routed.packet
-                    val isBroadcast = (pkt.recipientID == null || pkt.recipientID.contentEquals(SpecialRecipients.BROADCAST))
-                    if (isBroadcast && pkt.type == MessageType.MSG_REACTION.value) {
-                        gossipSyncManager.onPublicPacketSeen(pkt)
-                    }
-                } catch (_: Exception) { }
-            }
-
             override fun handleVoiceFrame(routed: RoutedPacket): Boolean =
                 messageHandler.handlePublicVoiceFrame(routed)
             
-            override fun handleLeave(routed: RoutedPacket) {
-                serviceScope.launch { messageHandler.handleLeave(routed) }
+            override suspend fun handleLeave(routed: RoutedPacket) {
+                messageHandler.handleLeave(routed)
             }
             
             override fun handleFragment(packet: CirabitPacket): CirabitPacket? {
@@ -889,132 +855,32 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
     /**
      * Send public message
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun sendMessage(
-        content: String,
-        mentions: List<String> = emptyList(),
-        channel: String? = null,
-        timestampMs: Long? = null
-    ): String? {
-        if (content.isEmpty()) return null
-
-        val packet = CirabitPacket(
-            version = 1u,
-            type = MessageType.MESSAGE.value,
-            senderID = hexStringToByteArray(myPeerID),
-            recipientID = SpecialRecipients.BROADCAST,
-            timestamp = (timestampMs ?: System.currentTimeMillis()).toULong(),
-            payload = content.toByteArray(Charsets.UTF_8),
-            signature = null,
-            ttl = MAX_TTL
-        )
-        val messageID = PacketIdUtil.computeIdHex(packet)
-
+    fun sendMessage(content: String, mentions: List<String> = emptyList(), channel: String? = null) {
+        if (content.isEmpty()) return
+        
         serviceScope.launch {
+            val packet = CirabitPacket(
+                version = 1u,
+                type = MessageType.MESSAGE.value,
+                senderID = hexStringToByteArray(myPeerID),
+                recipientID = SpecialRecipients.BROADCAST,
+                timestamp = System.currentTimeMillis().toULong(),
+                payload = content.toByteArray(Charsets.UTF_8),
+                signature = null,
+                ttl = MAX_TTL
+            )
+
             // Sign the packet before broadcasting
             val signedPacket = signPacketBeforeBroadcast(packet)
             broadcastRoutedPacket(RoutedPacket(signedPacket))
             // Track our own broadcast message for sync
             try { gossipSyncManager.onPublicPacketSeen(signedPacket) } catch (_: Exception) { }
         }
-
-        return messageID
     }
 
     /**
-     * Send an emoji reaction update for an existing message.
-     * Public reactions use MSG_REACTION, private reactions use NOISE_ENCRYPTED with REACTION payload.
+     * Send a file over mesh as a broadcast MESSAGE (public mesh timeline/channels).
      */
-    fun sendMessageReaction(
-        messageID: String,
-        emoji: String,
-        recipientPeerID: String? = null,
-        isPrivate: Boolean = false,
-        isRemoval: Boolean = false
-    ) {
-        if (messageID.isBlank() || emoji.isBlank()) return
-
-        val reaction = MessageReaction(
-            messageID = messageID,
-            emoji = emoji,
-            reactorPeerID = myPeerID,
-            isRemoval = isRemoval
-        )
-
-        serviceScope.launch {
-            if (isPrivate) {
-                val targetPeerID = recipientPeerID
-                if (targetPeerID.isNullOrBlank()) {
-                    Log.w(TAG, "Cannot send private reaction without recipient peer ID")
-                    return@launch
-                }
-
-                try {
-                    val result = privateReactionQueue.sendOrQueue(targetPeerID, reaction)
-                    if (result == PrivateReactionQueueManager.SendResult.QUEUED) {
-                        Log.d(TAG, "⏳ Queued private reaction for $targetPeerID while waiting for Noise session")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to send private reaction to $targetPeerID: ${e.message}")
-                }
-                return@launch
-            }
-
-            val encodedReaction = MessageReactionCodec.encode(reaction) ?: run {
-                Log.w(TAG, "Failed to encode reaction payload")
-                return@launch
-            }
-
-            val packet = CirabitPacket(
-                version = 1u,
-                type = MessageType.MSG_REACTION.value,
-                senderID = hexStringToByteArray(myPeerID),
-                recipientID = SpecialRecipients.BROADCAST,
-                timestamp = System.currentTimeMillis().toULong(),
-                payload = encodedReaction,
-                signature = null,
-                ttl = MAX_TTL
-            )
-
-            val signedPacket = signPacketBeforeBroadcast(packet)
-            connectionManager.broadcastPacket(RoutedPacket(signedPacket))
-            try { gossipSyncManager.onPublicPacketSeen(signedPacket) } catch (_: Exception) { }
-        }
-    }
-
-    private suspend fun sendPrivateReactionPacket(
-        targetPeerID: String,
-        reaction: MessageReaction
-    ): Boolean {
-        return try {
-            val encodedReaction = MessageReactionCodec.encode(reaction) ?: run {
-                Log.w(TAG, "Failed to encode private reaction payload")
-                return false
-            }
-            val noisePayload = NoisePayload(
-                type = NoisePayloadType.REACTION,
-                data = encodedReaction
-            )
-            val encrypted = encryptionService.encrypt(noisePayload.encode(), targetPeerID)
-            val packet = CirabitPacket(
-                version = 1u,
-                type = MessageType.NOISE_ENCRYPTED.value,
-                senderID = hexStringToByteArray(myPeerID),
-                recipientID = hexStringToByteArray(targetPeerID),
-                timestamp = System.currentTimeMillis().toULong(),
-                payload = encrypted,
-                signature = null,
-                ttl = MAX_TTL
-            )
-            val signedPacket = signPacketBeforeBroadcast(packet)
-            connectionManager.broadcastPacket(RoutedPacket(signedPacket))
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send private reaction packet to $targetPeerID: ${e.message}")
-            false
-        }
-    }
-
     private fun sendAuthenticatedPeerState(
         peerID: String,
         state: AuthenticatedPeerState,
@@ -1041,11 +907,7 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
         return true
     }
 
-    /**
-     * Send a file over mesh as a broadcast MESSAGE (public mesh timeline/channels).
-     * [timestampMs] lets callers pin the packet timestamp (cirabit stable file message IDs).
-     */
-    fun sendFileBroadcast(file: com.cirabit.android.model.CirabitFilePacket, timestampMs: Long? = null) {
+    fun sendFileBroadcast(file: com.cirabit.android.model.CirabitFilePacket) {
         try {
             val payload = file.encode()
             if (payload == null) {
@@ -1058,7 +920,7 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
                 type = MessageType.FILE_TRANSFER.value,
                 senderID = hexStringToByteArray(myPeerID),
                 recipientID = SpecialRecipients.BROADCAST,
-                timestamp = (timestampMs ?: System.currentTimeMillis()).toULong(),
+                timestamp = System.currentTimeMillis().toULong(),
                 payload = payload,
                 signature = null,
                 ttl = MAX_TTL
@@ -1777,13 +1639,14 @@ class BluetoothMeshService(private val context: Context) : TransportBridgeServic
     /**
      * Clear all encryption and cryptographic data (for panic mode)
      */
-    fun clearAllEncryptionData() {
+    fun clearAllEncryptionData(): Boolean {
         Log.w(TAG, "Clearing all encryption data")
-        try {
+        return try {
             // Clear encryption service persistent identity (includes Ed25519 signing keys)
             encryptionService.clearPersistentIdentity()
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing encryption data: ${e.message}")
+            false
         }
     }
 }

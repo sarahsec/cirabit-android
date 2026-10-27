@@ -197,8 +197,8 @@ The corresponding executable Android vectors live in
 
 ## Implementation references
 
-- `app/src/main/java/com/bitchat/android/protocol/BinaryProtocol.kt`
-- `app/src/main/java/com/bitchat/android/model/NoiseEncrypted.kt`
-- `app/src/main/java/com/bitchat/android/features/voice/VoiceBurstPacket.kt`
-- `app/src/main/java/com/bitchat/android/features/voice/LiveVoiceManager.kt`
-- `app/src/test/java/com/bitchat/android/features/voice/VoiceBurstPacketTest.kt`
+- `app/src/main/java/com/cirabit/android/protocol/BinaryProtocol.kt`
+- `app/src/main/java/com/cirabit/android/model/NoiseEncrypted.kt`
+- `app/src/main/java/com/cirabit/android/features/voice/VoiceBurstPacket.kt`
+- `app/src/main/java/com/cirabit/android/features/voice/LiveVoiceManager.kt`
+- `app/src/test/java/com/cirabit/android/features/voice/VoiceBurstPacketTest.kt`

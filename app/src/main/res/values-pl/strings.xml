@@ -188,7 +188,7 @@
     <string name="cd_open_map">Otwórz mapę</string>
     <string name="cd_remove_bookmark">Usuń zakładkę</string>
     <string name="cd_teleport">Teleportuj</string>
-    <string name="notification_action_quit_bitchat">Zamknij cirabit</string>
+    <string name="notification_action_quit_cirabit">Zamknij cirabit</string>
     <string name="about_background_title">działaj w tle</string>
     <string name="about_background_desc">utrzymuj sieć mesh aktywną po zamknięciu aplikacji (usługa pierwszoplanowa)</string>
     <string name="cd_leave_channel">Opuść kanał</string>
@@ -196,7 +196,6 @@
     <string name="cd_offline_favorite">Ulubiony offline</string>
     <string name="cd_decrease_precision">Zmniejsz precyzję</string>
     <string name="cd_increase_precision">Zwiększ precyzję</string>
-    <string name="cd_select_geohash">Wybierz geohash</string>
     <string name="cd_scroll_to_bottom">Przewiń na dół</string>
     <string name="cd_file">Plik</string>
     <string name="cd_image">Obraz</string>
@@ -297,14 +296,14 @@
     <string name="open_location_settings">Otwórz ustawienia lokalizacji</string>
     <string name="check_again">Sprawdź ponownie</string>
     <string name="location_services_unavailable">Usługi lokalizacji niedostępne</string>
-    <string name="location_unavailable_explanation">Usługi lokalizacji są niedostępne na tym urządzeniu. Jest to nietypowe, ponieważ usługi lokalizacji są standardem w urządzeniach z Androidem.\n\nbitchat potrzebuje usług lokalizacji, aby skanowanie Bluetooth działało poprawnie (wymóg Androida). Bez tego aplikacja nie może wykrywać pobliskich użytkowników.</string>
+    <string name="location_unavailable_explanation">Usługi lokalizacji są niedostępne na tym urządzeniu. Jest to nietypowe, ponieważ usługi lokalizacji są standardem w urządzeniach z Androidem.\n\ncirabit potrzebuje usług lokalizacji, aby skanowanie Bluetooth działało poprawnie (wymóg Androida). Bez tego aplikacja nie może wykrywać pobliskich użytkowników.</string>
     <string name="checking_location_services">Sprawdzanie usług lokalizacji...</string>
     <string name="bluetooth_required">Wymagany Bluetooth</string>
     <string name="bluetooth_needs_for">cirabit potrzebuje Bluetooth, aby:</string>
     <string name="bluetooth_needs_bullets">• Wykrywać pobliskich użytkowników\n• Tworzyć połączenia sieci mesh\n• Wysyłać i odbierać wiadomości\n• Działać bez internetu i serwerów</string>
     <string name="enable_bluetooth">Włącz Bluetooth</string>
     <string name="bluetooth_not_supported">Bluetooth nieobsługiwany</string>
-    <string name="bluetooth_unsupported_explanation">To urządzenie nie obsługuje Bluetooth Low Energy (BLE), który jest wymagany do działania cirabit.\n\nbitchat potrzebuje BLE, aby tworzyć sieci mesh i komunikować się z pobliskimi urządzeniami bez internetu.</string>
+    <string name="bluetooth_unsupported_explanation">To urządzenie nie obsługuje Bluetooth Low Energy (BLE), który jest wymagany do działania cirabit.\n\ncirabit potrzebuje BLE, aby tworzyć sieci mesh i komunikować się z pobliskimi urządzeniami bez internetu.</string>
     <string name="checking_bluetooth_status">Sprawdzanie stanu Bluetooth...</string>
     <string name="battery_optimization_detected_title">wykryto optymalizację baterii</string>
     <string name="battery_optimization_enabled_title">Optymalizacja baterii włączona</string>
@@ -331,8 +330,6 @@
     <string name="channel_count_prefix"> · ⧉ </string>
     <string name="nobody_around">nikogo w pobliżu...</string>
     <string name="you_suffix"> (ty)</string>
-    <string name="pan_zoom_instruction">przesuwaj i powiększaj, aby wybrać geohash</string>
-    <string name="select">wybierz</string>
     <string name="type_a_message_placeholder">napisz wiadomość...</string>
     <string name="mention_suggestion_at">@%1$s</string>
     <string name="mention">wzmianka</string>
@@ -398,4 +395,16 @@
     <string name="about_app_language">Język aplikacji</string>
     <string name="about_system_default">Domyślny systemu</string>
     <string name="about_select_language">Wybierz język</string>
+    <string name="about_spam_filter_title">Filtr spamu</string>
+    <string name="about_spam_filter_desc">Ukrywaj publiczne wiadomości od osób, które piszą zbyt szybko, powtarzają się lub wysyłają zbyt wiele linków.</string>
+  <string name="globe_live">na żywo</string>
+  <string name="globe_connecting">łączenie</string>
+  <string name="globe_offline">offline</string>
+  <string name="globe_hint_drag">obracaj</string>
+  <string name="globe_hint_pinch">przybliż</string>
+  <string name="globe_hint_tap">dotknij kropki</string>
+  <string name="globe_no_activity">brak ostatniej aktywności</string>
+  <string name="cd_show_whole_globe">Pokaż cały glob</string>
+  <string name="cd_globe_activity">Aktywne czaty: %1$d, osoby online: %2$d</string>
+  <string name="cd_channel_activity">Osoby: %1$d, wiadomości w ostatniej godzinie: %2$d</string>
 </resources>

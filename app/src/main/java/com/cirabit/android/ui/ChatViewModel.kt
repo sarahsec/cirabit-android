@@ -22,13 +22,10 @@ import com.cirabit.android.mesh.BluetoothMeshService
 import com.cirabit.android.mesh.MeshService
 import com.cirabit.android.service.MeshServiceHolder
 import com.cirabit.android.model.CirabitMessage
-import com.cirabit.android.model.MessageReaction
+import com.cirabit.android.model.CirabitMessageType
 import com.cirabit.android.nostr.NostrIdentityBridge
 import com.cirabit.android.nostr.GeohashConversationRegistry
 import com.cirabit.android.protocol.CirabitPacket
-import com.cirabit.android.protocol.MessageType
-import com.cirabit.android.protocol.SpecialRecipients
-import com.cirabit.android.sync.PacketIdUtil
 
 
 import kotlinx.coroutines.launch
@@ -39,7 +36,6 @@ import kotlin.random.Random
 import com.cirabit.android.services.VerificationService
 import com.cirabit.android.identity.SecureIdentityStateManager
 import com.cirabit.android.noise.NoiseSession
-import com.cirabit.android.util.dataFromHexString
 import com.cirabit.android.services.ContactDirectory
 import com.cirabit.android.services.ContactIdentityResolver
 import com.cirabit.android.util.hexEncodedString
@@ -73,34 +69,6 @@ class ChatViewModel(
 
     companion object {
         private const val TAG = "ChatViewModel"
-
-        internal fun applyReactionToState(
-            current: Map<String, Map<String, Set<String>>>,
-            reaction: MessageReaction
-        ): Map<String, Map<String, Set<String>>> {
-            val perMessage = (current[reaction.messageID] ?: emptyMap()).toMutableMap()
-            val users = (perMessage[reaction.emoji] ?: emptySet()).toMutableSet()
-
-            if (reaction.isRemoval) {
-                users.remove(reaction.reactorPeerID)
-            } else {
-                users.add(reaction.reactorPeerID)
-            }
-
-            if (users.isEmpty()) {
-                perMessage.remove(reaction.emoji)
-            } else {
-                perMessage[reaction.emoji] = users
-            }
-
-            val updated = current.toMutableMap()
-            if (perMessage.isEmpty()) {
-                updated.remove(reaction.messageID)
-            } else {
-                updated[reaction.messageID] = perMessage
-            }
-            return updated
-        }
         private const val CONVERSATION_DISCONNECT_GRACE_MS = 3_000L
     }
 
@@ -163,9 +131,6 @@ class ChatViewModel(
     private val transferMessageMap = mutableMapOf<String, String>()
     private val messageTransferMap = mutableMapOf<String, String>()
 
-    // Message reactions: messageID -> emoji -> peerIDs
-    private val _messageReactions = MutableStateFlow<Map<String, Map<String, Set<String>>>>(emptyMap())
-
     // Specialized managers
     private val dataManager = DataManager(application.applicationContext)
     private val identityManager by lazy { SecureIdentityStateManager(getApplication()) }
@@ -207,7 +172,6 @@ class ChatViewModel(
         }
     )
     private val commandProcessor = CommandProcessor(
-        application.applicationContext,
         state,
         messageManager,
         channelManager,
@@ -446,7 +410,6 @@ class ChatViewModel(
     val geohashPeople: StateFlow<List<GeoPerson>> = state.geohashPeople
     val teleportedGeo: StateFlow<Set<String>> = state.teleportedGeo
     val geohashParticipantCounts: StateFlow<Map<String, Int>> = state.geohashParticipantCounts
-    val messageReactions: StateFlow<Map<String, Map<String, Set<String>>>> = _messageReactions.asStateFlow()
     val meshServiceFacade: MeshService
         get() = mesh
     val myPeerID: String
@@ -1068,14 +1031,11 @@ class ChatViewModel(
                 // Send to geohash channel via Nostr ephemeral event
                 geohashViewModel.sendGeohashMessage(content, selectedLocationChannel.channel, mesh.myPeerID, state.getNicknameValue())
             } else {
-                val outgoingTimestamp = System.currentTimeMillis()
-                val outgoingMessageID = computePublicMessageID(content, outgoingTimestamp)
                 // Send public/channel message via mesh
                 val message = CirabitMessage(
-                    id = outgoingMessageID,
                     sender = state.getNicknameValue() ?: mesh.myPeerID,
                     content = content,
-                    timestamp = Date(outgoingTimestamp),
+                    timestamp = Date(),
                     isRelay = false,
                     senderPeerID = mesh.myPeerID,
                     mentions = if (mentions.isNotEmpty()) mentions else null,
@@ -1094,93 +1054,22 @@ class ChatViewModel(
                             state.getNicknameValue(),
                             mesh.myPeerID,
                             onEncryptedPayload = { encryptedData ->
-                                mesh.sendMessage(content, mentions, currentChannelValue, outgoingTimestamp)
+                                mesh.sendMessage(content, mentions, currentChannelValue)
                             },
                             onFallback = {
-                                mesh.sendMessage(content, mentions, currentChannelValue, outgoingTimestamp)
+                                mesh.sendMessage(content, mentions, currentChannelValue)
                             }
                         )
                     } else {
-                        mesh.sendMessage(content, mentions, currentChannelValue, outgoingTimestamp)
+                        mesh.sendMessage(content, mentions, currentChannelValue)
                     }
                 } else {
                     messageManager.addMessage(message)
-                    mesh.sendMessage(content, mentions, null, outgoingTimestamp)
+                    mesh.sendMessage(content, mentions, null)
                 }
             }
             onAccepted(true)
         }
-    }
-
-    fun toggleMessageReaction(message: CirabitMessage, emoji: String) {
-        if (message.id.isBlank() || emoji.isBlank()) return
-
-        val myPeerID = meshService.myPeerID
-        val alreadyReacted = _messageReactions.value[message.id]?.get(emoji)?.contains(myPeerID) == true
-        val reaction = MessageReaction(
-            messageID = message.id,
-            emoji = emoji,
-            reactorPeerID = myPeerID,
-            isRemoval = alreadyReacted
-        )
-
-        applyReactionUpdate(reaction)
-
-        if (message.isPrivate) {
-            val targetPeerID = resolvePrivateReactionPeer(message, myPeerID)
-            if (targetPeerID == null) {
-                Log.w(TAG, "Could not resolve private reaction target for message ${message.id}")
-                return
-            }
-            meshService.sendMessageReaction(
-                messageID = message.id,
-                emoji = emoji,
-                recipientPeerID = targetPeerID,
-                isPrivate = true,
-                isRemoval = alreadyReacted
-            )
-            return
-        }
-
-        meshService.sendMessageReaction(
-            messageID = message.id,
-            emoji = emoji,
-            recipientPeerID = null,
-            isPrivate = false,
-            isRemoval = alreadyReacted
-        )
-    }
-
-    private fun resolvePrivateReactionPeer(message: CirabitMessage, myPeerID: String): String? {
-        val senderPeerID = message.senderPeerID
-        val candidate = when {
-            senderPeerID.isNullOrBlank() -> state.getPrivateChatSheetPeerValue() ?: state.getSelectedPrivateChatPeerValue()
-            senderPeerID != myPeerID -> senderPeerID
-            else -> state.getPrivateChatSheetPeerValue() ?: state.getSelectedPrivateChatPeerValue()
-        } ?: return null
-
-        if (candidate == myPeerID) return null
-        if (!candidate.matches(Regex("^[0-9a-fA-F]{16}$"))) return null
-        return candidate
-    }
-
-    private fun applyReactionUpdate(reaction: MessageReaction) {
-        _messageReactions.update { current -> applyReactionToState(current, reaction) }
-    }
-
-    private fun computePublicMessageID(content: String, timestampMs: Long): String {
-        val senderID = meshService.myPeerID.dataFromHexString() ?: ByteArray(8)
-        val packet = CirabitPacket(
-            version = 1u,
-            type = MessageType.MESSAGE.value,
-            senderID = senderID,
-            recipientID = SpecialRecipients.BROADCAST,
-            timestamp = timestampMs.toULong(),
-            payload = content.toByteArray(Charsets.UTF_8),
-            signature = null,
-            ttl = com.cirabit.android.util.AppConstants.MESSAGE_TTL_HOPS
-        )
-        return PacketIdUtil.computeIdHex(packet)
     }
 
     // MARK: - Utility Functions
@@ -1313,7 +1202,7 @@ class ChatViewModel(
     /**
      * Update reactive states for all connected peers (session states, fingerprints, nicknames, RSSI)
      */
-    private fun updateReactiveStates() {
+    private suspend fun updateReactiveStates() {
         val currentPeers = state.getConnectedPeersValue()
         
         // Update session states
@@ -1332,19 +1221,16 @@ class ChatViewModel(
             }
         }
         // Update fingerprint mappings from centralized manager
+        val cacheGeneration = identityManager.cacheGeneration()
         val fingerprints = privateChatManager.getAllPeerFingerprints()
         state.setPeerFingerprints(fingerprints)
-        fingerprints.forEach { (peerID, fingerprint) ->
-            identityManager.cachePeerFingerprint(peerID, fingerprint)
-            val info = try { mesh.getPeerInfo(peerID) } catch (_: Exception) { null }
-            val noiseKeyHex = info?.noisePublicKey?.hexEncodedString()
-            if (noiseKeyHex != null) {
-                identityManager.cachePeerNoiseKey(peerID, noiseKeyHex)
-                identityManager.cacheNoiseFingerprint(noiseKeyHex, fingerprint)
-            }
-            info?.nickname?.takeIf { it.isNotBlank() }?.let { nickname ->
-                identityManager.cacheFingerprintNickname(fingerprint, nickname)
-            }
+        withContext(Dispatchers.IO) {
+            identityManager.cachePeerIdentities(fingerprints.map { (peerID, fingerprint) ->
+                val info = try { mesh.getPeerInfo(peerID) } catch (_: Exception) { null }
+                SecureIdentityStateManager.CachedPeerIdentity(
+                    peerID, fingerprint, info?.noisePublicKey?.hexEncodedString(), info?.nickname
+                )
+            }, cacheGeneration)
         }
 
         state.setPeerNicknames(mesh.getPeerNicknames())
@@ -1414,21 +1300,12 @@ class ChatViewModel(
         notificationManager.clearMeshMentionNotifications()
     }
 
-    private var reopenSidebarAfterVerification = false
-
-    fun showVerificationSheet(fromSidebar: Boolean = false) {
-        if (fromSidebar) {
-            reopenSidebarAfterVerification = true
-        }
+    fun showVerificationSheet() {
         state.setShowVerificationSheet(true)
     }
 
     fun hideVerificationSheet() {
         state.setShowVerificationSheet(false)
-        if (reopenSidebarAfterVerification) {
-            reopenSidebarAfterVerification = false
-            state.setShowMeshPeerList(true)
-        }
     }
 
     fun showSecurityVerificationSheet() {
@@ -1504,10 +1381,6 @@ class ChatViewModel(
     
     override fun didReceiveMessage(message: CirabitMessage) {
         meshDelegateHandler.didReceiveMessage(message)
-    }
-
-    override fun didReceiveMessageReaction(reaction: MessageReaction) {
-        applyReactionUpdate(reaction)
     }
     
     override fun didUpdatePeerList(peers: List<String>) {
@@ -1588,28 +1461,40 @@ class ChatViewModel(
         // Clear all UI managers
         com.cirabit.android.services.AppStateStore.clear()
         messageManager.clearAllMessages()
-        _messageReactions.value = emptyMap()
         channelManager.clearAllChannels()
         privateChatManager.clearAllPrivateChats()
         dataManager.clearAllData()
         conversationListPreferences.clearAll()
         
+        // Every stage that wipes data at rest reports here. The success message is a
+        // security assurance, so it requires all of them, not just the conversation database.
+        var wipeComplete = true
+
         // Clear seen message store and MessageRouter outbox
         try {
             com.cirabit.android.services.SeenMessageStore.getInstance(getApplication()).clear()
-        } catch (_: Exception) { }
+        } catch (_: Exception) {
+            wipeComplete = false
+        }
         try {
             com.cirabit.android.services.MessageRouter.tryGetInstance()?.clearAll()
-        } catch (_: Exception) { }
+        } catch (_: Exception) {
+            wipeComplete = false
+        }
+
+        // The spam filter keeps recent message text and sender keys for its repeat checks
+        com.cirabit.android.spam.SpamFilter.shared.reset()
         
         // Clear all cryptographic data
-        clearAllCryptographicData()
+        if (!clearAllCryptographicData()) wipeComplete = false
         
         // Clear all notifications
         notificationManager.clearAllNotifications(removeConversationShortcuts = true)
 
         // Clear all media files
-        com.cirabit.android.features.file.FileUtils.clearAllMedia(getApplication())
+        if (!com.cirabit.android.features.file.FileUtils.clearAllMedia(getApplication())) {
+            wipeComplete = false
+        }
         
         // Clear Nostr/geohash state, keys, connections, bookmarks, and reinitialize from scratch
         try {
@@ -1617,16 +1502,21 @@ class ChatViewModel(
             try {
                 val store = com.cirabit.android.geohash.GeohashBookmarksStore.getInstance(getApplication())
                 store.clearAll()
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+                wipeComplete = false
+            }
 
             try {
                 val locationManager = com.cirabit.android.geohash.LocationChannelManager.getInstance(getApplication())
                 locationManager.clearPersistedChannel()
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+                wipeComplete = false
+            }
 
-            geohashViewModel.panicReset()
+            if (!geohashViewModel.panicReset()) wipeComplete = false
         } catch (e: Exception) {
             Log.e(TAG, "Failed to reset Nostr/geohash: ${e.message}")
+            wipeComplete = false
         }
 
         // Reset nickname
@@ -1638,6 +1528,11 @@ class ChatViewModel(
             // Privacy wins over availability: keep private-message admission and transports
             // stopped if SQLite could not prove that the conversation history was erased.
             Log.e(TAG, "🚨 PANIC MODE INCOMPLETE - conversation database wipe failed")
+            // A wipe that does not commit must be as visible as the wipe itself: the
+            // person who triggered it may be relying on the device being clean.
+            messageManager.addSystemMessage(
+                getApplication<Application>().getString(com.cirabit.android.R.string.system_panic_incomplete)
+            )
             return
         }
 
@@ -1645,6 +1540,17 @@ class ChatViewModel(
         com.cirabit.android.services.AppStateStore
             .resumePrivateConversationsAfterPanic()
         recreateMeshServiceAfterPanic()
+
+        // In a duress scenario "did it work?" must not be a guess: the natural
+        // response to uncertainty is to trigger the wipe again. Announce success
+        // only when every stage confirmed its wipe.
+        val outcome = if (wipeComplete) {
+            com.cirabit.android.R.string.system_panic_completed
+        } else {
+            Log.e(TAG, "🚨 PANIC MODE INCOMPLETE - a wipe stage did not confirm")
+            com.cirabit.android.R.string.system_panic_incomplete
+        }
+        messageManager.addSystemMessage(getApplication<Application>().getString(outcome))
 
         Log.w(TAG, "🚨 PANIC MODE COMPLETED - New identity: ${mesh.myPeerID}")
     }
@@ -1695,34 +1601,41 @@ class ChatViewModel(
     /**
      * Clear all cryptographic data including persistent identity
      */
-    private fun clearAllCryptographicData() {
+    /** Returns true only when every identity, key, and favorites store confirmed its wipe. */
+    private fun clearAllCryptographicData(): Boolean {
+        var cleared = true
         try {
             // Clear encryption service persistent identity (Ed25519 signing keys)
-            mesh.clearAllEncryptionData()
+            if (!mesh.clearAllEncryptionData()) cleared = false
             
             // Clear secure identity state (if used)
             try {
                 val identityManager = SecureIdentityStateManager(getApplication())
-                identityManager.clearIdentityData()
+                if (!identityManager.clearIdentityData()) cleared = false
                 // Also clear secure values used by FavoritesPersistenceService (favorites + peerID index)
-                try {
-                    identityManager.clearSecureValues("favorite_relationships", "favorite_peerid_index")
-                } catch (_: Exception) { }
+                if (!identityManager.clearSecureValuesSynchronously("favorite_relationships", "favorite_peerid_index")) {
+                    cleared = false
+                }
                 Log.d(TAG, "✅ Cleared secure identity state and secure favorites store")
             } catch (e: Exception) {
-                Log.d(TAG, "SecureIdentityStateManager not available or already cleared: ${e.message}")
+                Log.e(TAG, "❌ Failed to clear secure identity state: ${e.message}")
+                cleared = false
             }
 
             // Clear FavoritesPersistenceService persistent relationships
             try {
                 FavoritesPersistenceService.shared.clearAllFavorites()
                 Log.d(TAG, "✅ Cleared FavoritesPersistenceService relationships")
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+                cleared = false
+            }
             
             Log.d(TAG, "✅ Cleared all cryptographic data")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error clearing cryptographic data: ${e.message}")
+            cleared = false
         }
+        return cleared
     }
 
     /**
@@ -1785,10 +1698,10 @@ class ChatViewModel(
     }
 
     /**
-     * Block a user in geohash channels by their nickname
+     * Block a user in geohash channels, preferring the sender's Nostr pubkey over the nickname
      */
-    fun blockUserInGeohash(targetNickname: String) {
-        geohashViewModel.blockUserInGeohash(targetNickname)
+    fun blockUserInGeohash(targetNickname: String, pubkeyHex: String? = null) {
+        geohashViewModel.blockUserInGeohash(targetNickname, pubkeyHex)
     }
 
     // MARK: - Navigation Management

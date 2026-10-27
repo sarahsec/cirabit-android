@@ -20,16 +20,16 @@ comparison SHAs.
 
 Inspect:
 
-- `app/src/debug/java/com/bitchat/android/testhook/TestHookReceiver.kt`
-- `app/src/debug/java/com/bitchat/android/testhook/TestHookDriver.kt`
+- `app/src/debug/java/com/cirabit/android/testhook/TestHookReceiver.kt`
+- `app/src/debug/java/com/cirabit/android/testhook/TestHookDriver.kt`
 - `app/src/debug/AndroidManifest.xml`
 
 The receiver accepts:
 
 ```sh
 adb -s "$ANDROID_REVIEW_SERIAL" shell am broadcast \
-  -n com.bitchat.droid/com.bitchat.android.testhook.TestHookReceiver \
-  -a com.bitchat.droid.TEST_HOOK \
+  -n com.cirabit.android/com.cirabit.android.testhook.TestHookReceiver \
+  -a com.cirabit.android.TEST_HOOK \
   --es cmd "<command>" \
   --es id "<unique-result-id>"
 ```
@@ -37,7 +37,7 @@ adb -s "$ANDROID_REVIEW_SERIAL" shell am broadcast \
 Read the result rather than trusting broadcast delivery:
 
 ```sh
-adb -s "$ANDROID_REVIEW_SERIAL" shell run-as com.bitchat.droid \
+adb -s "$ANDROID_REVIEW_SERIAL" shell run-as com.cirabit.android \
   cat "cache/testhook/results/<unique-result-id>.json"
 ```
 
@@ -60,28 +60,28 @@ private fun uiFixture(context: Context, intent: Intent): JSONObject {
     val epochMs = intent.getLongExtra("fixture_epoch_ms", 1_800_000_000_000L)
 
     listOf(
-        BitchatMessage(
+        CirabitMessage(
             id = "ui-fixture-received-short",
             sender = "mara",
             content = "Are you seeing this?",
             timestamp = Date(epochMs),
             senderPeerID = "ui-fixture-peer",
         ),
-        BitchatMessage(
+        CirabitMessage(
             id = "ui-fixture-received-wrap",
             sender = "mara",
             content = "The mesh stays readable even when a message wraps onto a second line.",
             timestamp = Date(epochMs + 60_000),
             senderPeerID = "ui-fixture-peer",
         ),
-        BitchatMessage(
+        CirabitMessage(
             id = "ui-fixture-self-short",
             sender = nickname,
             content = "Yep — testing the message layout.",
             timestamp = Date(epochMs + 120_000),
             senderPeerID = mesh.myPeerID,
         ),
-        BitchatMessage(
+        CirabitMessage(
             id = "ui-fixture-self-wrap",
             sender = nickname,
             content = "Short and long bubbles should align consistently.",
@@ -133,7 +133,7 @@ the in-memory store:
 
 ```kotlin
 private fun resetNicknameFixture(context: Context): JSONObject {
-    context.getSharedPreferences("bitchat_prefs", Context.MODE_PRIVATE)
+    context.getSharedPreferences("cirabit_prefs", Context.MODE_PRIVATE)
         .edit()
         .remove("nickname")
         .commit()

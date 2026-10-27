@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-IMAGE_NAME="bitchat-android-arti-builder:1.9.0"
+IMAGE_NAME="cirabit-android-arti-builder:1.9.0"
 MODE="${1:-}"
 
 if ! command -v docker >/dev/null 2>&1; then

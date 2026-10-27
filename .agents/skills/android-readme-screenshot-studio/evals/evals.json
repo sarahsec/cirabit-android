@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Refresh the Bitchat README with two polished screenshots from the latest main UI: a populated mesh chat and the geohash globe centered on the Middle East without zooming. Use a large high-resolution Android emulator, open a PR, and merge it after checks pass.",
+      "prompt": "Refresh the Cirabit README with two polished screenshots from the latest main UI: a populated mesh chat and the geohash globe centered on the Middle East without zooming. Use a large high-resolution Android emulator, open a PR, and merge it after checks pass.",
       "expected_output": "The agent works in a fresh latest-main worktree, tries the documented current-pair fast path before rediscovering the fixture, captures the real app on a verified large portrait emulator profile, uses deterministic synthetic state, centers the globe without changing whole-Earth scale, removes capture hooks, validates the assets, opens a PR, waits for checks, and merges only because the prompt explicitly authorizes it.",
       "files": [],
       "expectations": [

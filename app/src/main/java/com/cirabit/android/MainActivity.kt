@@ -1,38 +1,20 @@
 package com.cirabit.android
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.util.Log
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.repeatOnLifecycle
@@ -57,13 +39,10 @@ import com.cirabit.android.onboarding.OnboardingCoordinator
 import com.cirabit.android.onboarding.OnboardingState
 import com.cirabit.android.onboarding.PermissionExplanationScreen
 import com.cirabit.android.onboarding.PermissionManager
-import com.cirabit.android.security.AppLockPreferenceManager
 import com.cirabit.android.ui.ChatScreen
 import com.cirabit.android.ui.ChatViewModel
 import com.cirabit.android.ui.OrientationAwareActivity
 import com.cirabit.android.ui.theme.CirabitTheme
-import com.cirabit.android.update.AppUpdateCheckService
-import com.cirabit.android.update.AppUpdatePreferenceManager
 import com.cirabit.android.wifiaware.WifiAwareController
 import com.cirabit.android.nostr.PoWPreferenceManager
 import com.cirabit.android.services.VerificationService
@@ -91,15 +70,6 @@ class MainActivity : OrientationAwareActivity() {
             }
         }
     }
-    private var shouldRequireAppUnlock = false
-    private var isAppUnlockInProgress = false
-    private var isAppContentUnlocked by mutableStateOf(true)
-    private var appLockPromptSucceeded = false
-    private var suppressRelockUntilElapsedRealtimeMs = 0L
-    private var isCoreInitialized = false
-    private var showUpdateAvailableDialog by mutableStateOf(false)
-    private var pendingUpdateVersion by mutableStateOf<String?>(null)
-    private val appLockPrompt by lazy { createAppLockPrompt() }
     
     private val forceFinishReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
@@ -149,170 +119,6 @@ class MainActivity : OrientationAwareActivity() {
 
         // Initialize permission management
         permissionManager = PermissionManager(this)
-        AppLockPreferenceManager.init(this)
-        AppUpdatePreferenceManager.init(this)
-        shouldRequireAppUnlock = AppLockPreferenceManager.isEnabled()
-        isAppContentUnlocked = !shouldRequireAppUnlock
-
-        // Must happen in onCreate: onboarding managers register ActivityResult launchers.
-        // Registering after STARTED/RESUMED crashes with IllegalStateException.
-        ensureCoreInitializedSafely()
-        
-        setContent {
-            CirabitTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = MaterialTheme.colorScheme.background
-                ) { innerPadding ->
-                    if (isAppContentUnlocked) {
-                        OnboardingFlowScreen(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding)
-                        )
-                    } else {
-                        AppLockGateScreen(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding)
-                        )
-                    }
-                }
-
-                if (showUpdateAvailableDialog && isAppContentUnlocked) {
-                    UpdateAvailableDialog()
-                }
-            }
-        }
-        
-        // Collect state changes in a lifecycle-aware manner
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                mainViewModel.onboardingState.collect { state ->
-                    handleOnboardingStateChange(state)
-                }
-            }
-        }
-
-        // Keep the unified mesh delegate attached when Wi-Fi Aware starts after the UI.
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                WifiAwareController.running.collect { running ->
-                    if (running && isCoreInitialized && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                        unifiedMeshService.delegate = chatViewModel
-                    }
-                }
-            }
-        }
-
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                AppUpdatePreferenceManager.updateInfo.collect { updateInfo ->
-                    if (!isAppContentUnlocked) return@collect
-                    if (mainViewModel.onboardingState.value != OnboardingState.COMPLETE) return@collect
-
-                    val shouldShowPrompt = AppUpdatePreferenceManager.shouldShowUpdatePrompt(
-                        context = this@MainActivity,
-                        info = updateInfo
-                    )
-                    if (!shouldShowPrompt) return@collect
-
-                    pendingUpdateVersion = updateInfo.latestVersion
-                    showUpdateAvailableDialog = true
-                    AppUpdatePreferenceManager.markUpdatePromptShown(
-                        context = this@MainActivity,
-                        latestVersion = updateInfo.latestVersion,
-                        releaseUrl = updateInfo.releaseUrl
-                    )
-                }
-            }
-        }
-        
-    }
-    
-    @Composable
-    private fun AppLockGateScreen(modifier: Modifier = Modifier) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                    contentDescription = stringResource(R.string.app_name),
-                    modifier = Modifier.size(84.dp)
-                )
-                Text(
-                    text = stringResource(R.string.app_lock_prompt_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = stringResource(R.string.app_lock_gate_message),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                )
-                Button(
-                    onClick = { maybeAuthenticateAppLock() },
-                    enabled = !isAppUnlockInProgress
-                ) {
-                    Text(text = stringResource(R.string.app_lock_retry_button))
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun UpdateAvailableDialog() {
-        val version = pendingUpdateVersion
-        AlertDialog(
-            onDismissRequest = { showUpdateAvailableDialog = false },
-            title = { Text(text = stringResource(R.string.update_available_dialog_title)) },
-            text = {
-                Text(
-                    text = if (!version.isNullOrBlank()) {
-                        stringResource(R.string.update_available_dialog_message_with_version, version)
-                    } else {
-                        stringResource(R.string.update_available_dialog_message)
-                    }
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showUpdateAvailableDialog = false
-                        openLatestReleasePage()
-                    }
-                ) {
-                    Text(text = stringResource(R.string.update_available_dialog_download))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUpdateAvailableDialog = false }) {
-                    Text(text = stringResource(R.string.update_available_dialog_later))
-                }
-            }
-        )
-    }
-
-    private fun openLatestReleasePage() {
-        val targetUrl = AppUpdateCheckService.DOWNLOAD_PAGE_URL
-
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)))
-        }.onFailure { error ->
-            Log.w("MainActivity", "Failed to open release page: $targetUrl", error)
-        }
-    }
-
-    private fun initializeCoreComponentsIfNeeded() {
-        if (isCoreInitialized) return
-
-        // Ensure foreground service is running and get mesh instance from holder
         // Start the foreground service when allowed, then get mesh instances from the holder.
         startMeshForegroundServiceBestEffort()
         meshService = com.cirabit.android.service.MeshServiceHolder.getOrCreate(applicationContext)
@@ -347,26 +153,48 @@ class MainActivity : OrientationAwareActivity() {
             },
             onOnboardingFailed = ::handleOnboardingFailed
         )
-        isCoreInitialized = true
+        
+        setContent {
+            CirabitTheme {
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    containerColor = MaterialTheme.colorScheme.background
+                ) { innerPadding ->
+                    OnboardingFlowScreen(modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                    )
+                }
+            }
+        }
+        
+        // Collect state changes in a lifecycle-aware manner
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                mainViewModel.onboardingState.collect { state ->
+                    handleOnboardingStateChange(state)
+                }
+            }
+        }
 
+        // Keep the unified mesh delegate attached when Wi-Fi Aware starts after the UI.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                WifiAwareController.running.collect { running ->
+                    if (running && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                        unifiedMeshService.delegate = chatViewModel
+                    }
+                }
+            }
+        }
+        
         // Only start onboarding process if we're in the initial CHECKING state
         // This prevents restarting onboarding on configuration changes
         if (mainViewModel.onboardingState.value == OnboardingState.CHECKING) {
             checkOnboardingStatus()
         }
     }
-
-    private fun ensureCoreInitializedSafely(): Boolean {
-        if (isCoreInitialized) return true
-        return runCatching {
-            initializeCoreComponentsIfNeeded()
-            true
-        }.getOrElse { error ->
-            Log.e("MainActivity", "Failed to initialize core components", error)
-            false
-        }
-    }
-
+    
     @Composable
     private fun OnboardingFlowScreen(modifier: Modifier = Modifier) {
         val context = LocalContext.current
@@ -526,8 +354,7 @@ class MainActivity : OrientationAwareActivity() {
         when (state) {
             OnboardingState.COMPLETE -> {
                 // App is fully initialized, mesh service is running
-                android.util.Log.d("MainActivity", "Onboarding completed - app ready")
-                maybeAuthenticateAppLock()
+                android.util.Log.i("MainActivity", "Onboarding completed - app ready")
             }
             OnboardingState.ERROR -> {
                 android.util.Log.e("MainActivity", "Onboarding error state reached")
@@ -904,7 +731,7 @@ class MainActivity : OrientationAwareActivity() {
         com.cirabit.android.service.AppShutdownCoordinator.cancelPendingShutdown()
         
         // Handle notification intents when app is already running
-        if (isCoreInitialized && mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
+        if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
             handleNotificationIntent(intent)
             handleVerificationIntent(intent)
         }
@@ -922,185 +749,42 @@ class MainActivity : OrientationAwareActivity() {
         // Revoke stale live-location work before any resumed UI can use cached channels.
         LocationChannelManager.getInstance(applicationContext).syncPermissionState()
 
-        if (shouldRequireAppUnlock) {
-            // Recover if OEM/OS interrupted prompt flow without delivering callback.
-            if (isAppUnlockInProgress) {
-                Log.w("MainActivity", "Resetting stale app-lock in-progress state on resume")
-                isAppUnlockInProgress = false
-            }
-            maybeAuthenticateAppLock()
-            if (shouldRequireAppUnlock || isAppUnlockInProgress) return
-        }
-
-        if (!ensureCoreInitializedSafely()) return
-
-        lifecycleScope.launch {
-            runCatching { AppUpdateCheckService.checkForUpdatesIfNeeded(this@MainActivity) }
-                .onFailure { error ->
-                    Log.w("MainActivity", "Automatic app update check failed", error)
-                }
-        }
-
         // Check Bluetooth and Location status on resume and handle accordingly
         if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
-            runCatching { handlePostUnlockResumeChecks() }
-                .onFailure { error ->
-                    Log.e("MainActivity", "Post-unlock resume checks failed", error)
-                }
-        }
-    }
+            // Reattach mesh delegate to new ChatViewModel instance after Activity recreation
+            try { unifiedMeshService.delegate = chatViewModel } catch (_: Exception) { }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && shouldRequireAppUnlock && !isAppUnlockInProgress) {
-            maybeAuthenticateAppLock()
+            // Check if Bluetooth was disabled while app was backgrounded
+            val currentBluetoothStatus = bluetoothStatusManager.checkBluetoothStatus()
+            val bleRequired = try { com.cirabit.android.ui.debug.DebugPreferenceManager.getBleEnabled(true) } catch (_: Exception) { true }
+            if (bleRequired && currentBluetoothStatus != BluetoothStatus.ENABLED && !mainViewModel.isBluetoothCheckSkipped.value) {
+                Log.w("MainActivity", "Bluetooth disabled while app was backgrounded")
+                mainViewModel.updateBluetoothStatus(currentBluetoothStatus)
+                mainViewModel.updateOnboardingState(OnboardingState.BLUETOOTH_CHECK)
+                mainViewModel.updateBluetoothLoading(false)
+                return
+            }
+            
+            // Check if location services were disabled while app was backgrounded
+            val currentLocationStatus = locationStatusManager.checkLocationStatus()
+            if (currentLocationStatus != LocationStatus.ENABLED) {
+                Log.w("MainActivity", "Location services disabled while app was backgrounded")
+                mainViewModel.updateLocationStatus(currentLocationStatus)
+                mainViewModel.updateOnboardingState(OnboardingState.LOCATION_CHECK)
+                mainViewModel.updateLocationLoading(false)
+            } else {
+                // If location is enabled, ensure Wi-Fi Aware starts if it was blocked by location earlier
+                com.cirabit.android.wifiaware.WifiAwareController.startIfPossible()
+            }
         }
     }
     
     override fun onPause() {
         super.onPause()
         // Only set background state if app is fully initialized
-        if (isCoreInitialized && mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
+        if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
             // Detach UI delegate so the foreground service can own DM notifications while UI is closed
             try { unifiedMeshService.delegate = null } catch (_: Exception) { }
-
-            val shouldSuppressRelockForThisPause =
-                SystemClock.elapsedRealtime() < suppressRelockUntilElapsedRealtimeMs
-
-            if (
-                !shouldSuppressRelockForThisPause &&
-                !isChangingConfigurations &&
-                AppLockPreferenceManager.isEnabled() &&
-                !isAppUnlockInProgress
-            ) {
-                shouldRequireAppUnlock = true
-                isAppContentUnlocked = false
-            }
-        }
-    }
-
-    private fun handlePostUnlockResumeChecks() {
-        if (!isCoreInitialized) return
-
-        // Reattach mesh delegate to new ChatViewModel instance after Activity recreation
-        try { unifiedMeshService.delegate = chatViewModel } catch (_: Exception) { }
-
-        // Check if Bluetooth was disabled while app was backgrounded
-        val currentBluetoothStatus = bluetoothStatusManager.checkBluetoothStatus()
-        val bleRequired = try { com.cirabit.android.ui.debug.DebugPreferenceManager.getBleEnabled(true) } catch (_: Exception) { true }
-        if (bleRequired && currentBluetoothStatus != BluetoothStatus.ENABLED && !mainViewModel.isBluetoothCheckSkipped.value) {
-            Log.w("MainActivity", "Bluetooth disabled while app was backgrounded")
-            mainViewModel.updateBluetoothStatus(currentBluetoothStatus)
-            mainViewModel.updateOnboardingState(OnboardingState.BLUETOOTH_CHECK)
-            mainViewModel.updateBluetoothLoading(false)
-            return
-        }
-
-        // Check if location services were disabled while app was backgrounded
-        val currentLocationStatus = locationStatusManager.checkLocationStatus()
-        if (currentLocationStatus != LocationStatus.ENABLED) {
-            Log.w("MainActivity", "Location services disabled while app was backgrounded")
-            mainViewModel.updateLocationStatus(currentLocationStatus)
-            mainViewModel.updateOnboardingState(OnboardingState.LOCATION_CHECK)
-            mainViewModel.updateLocationLoading(false)
-        } else {
-            // If location is enabled, ensure Wi-Fi Aware starts if it was blocked by location earlier
-            com.cirabit.android.wifiaware.WifiAwareController.startIfPossible()
-        }
-    }
-
-    private fun createAppLockPrompt(): BiometricPrompt =
-        BiometricPrompt(
-            this,
-            ContextCompat.getMainExecutor(this),
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    appLockPromptSucceeded = true
-                    isAppUnlockInProgress = false
-                    if (!ensureCoreInitializedSafely()) {
-                        suppressRelockUntilElapsedRealtimeMs = 0L
-                        shouldRequireAppUnlock = true
-                        isAppContentUnlocked = false
-                        return
-                    }
-                    suppressRelockUntilElapsedRealtimeMs = SystemClock.elapsedRealtime() + 1500L
-                    shouldRequireAppUnlock = false
-                    isAppContentUnlocked = true
-                    Log.d("MainActivity", "App lock authentication succeeded")
-
-                    if (mainViewModel.onboardingState.value == OnboardingState.COMPLETE) {
-                        runCatching { handlePostUnlockResumeChecks() }
-                            .onFailure { error ->
-                                Log.e("MainActivity", "Post-auth checks failed", error)
-                            }
-                    }
-                }
-
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                    Log.w("MainActivity", "App lock authentication failed")
-                }
-
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    if (appLockPromptSucceeded) {
-                        Log.w(
-                            "MainActivity",
-                            "Ignoring app lock authentication error after success ($errorCode): $errString"
-                        )
-                        return
-                    }
-                    isAppUnlockInProgress = false
-                    suppressRelockUntilElapsedRealtimeMs = 0L
-                    shouldRequireAppUnlock = true
-                    isAppContentUnlocked = false
-                    Log.w("MainActivity", "App lock authentication error ($errorCode): $errString")
-                }
-            }
-        )
-
-    private fun maybeAuthenticateAppLock() {
-        if (isFinishing || isDestroyed) return
-        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
-        if (isAppUnlockInProgress || !shouldRequireAppUnlock) return
-        if (!AppLockPreferenceManager.isEnabled()) {
-            shouldRequireAppUnlock = false
-            isAppContentUnlocked = true
-            return
-        }
-
-        val authStatus = AppLockPreferenceManager.authenticationStatus(this)
-        if (authStatus != BiometricManager.BIOMETRIC_SUCCESS) {
-            Log.w(
-                "MainActivity",
-                "App lock enabled but unavailable (status=$authStatus), disabling preference"
-            )
-            AppLockPreferenceManager.setEnabled(this, false)
-            shouldRequireAppUnlock = false
-            isAppContentUnlocked = true
-            return
-        }
-
-        isAppContentUnlocked = false
-        isAppUnlockInProgress = true
-        appLockPromptSucceeded = false
-        suppressRelockUntilElapsedRealtimeMs = 0L
-        runCatching {
-            appLockPrompt.authenticate(
-                BiometricPrompt.PromptInfo.Builder()
-                    .setTitle(getString(R.string.app_lock_prompt_title))
-                    .setSubtitle(getString(R.string.app_lock_prompt_subtitle))
-                    .setAllowedAuthenticators(AppLockPreferenceManager.promptAuthenticators())
-                    .build()
-            )
-        }.onFailure { error ->
-            isAppUnlockInProgress = false
-            appLockPromptSucceeded = false
-            suppressRelockUntilElapsedRealtimeMs = 0L
-            shouldRequireAppUnlock = true
-            isAppContentUnlocked = false
-            Log.e("MainActivity", "Failed to launch app lock prompt", error)
         }
     }
     
@@ -1182,13 +866,10 @@ class MainActivity : OrientationAwareActivity() {
         try { unregisterReceiver(forceFinishReceiver) } catch (_: Exception) { }
         
         // Cleanup location status manager
-        if (isCoreInitialized) {
-            try {
-                locationStatusManager.cleanup()
-                Log.d("MainActivity", "Location status manager cleaned up successfully")
-            } catch (e: Exception) {
-                Log.w("MainActivity", "Error cleaning up location status manager: ${e.message}")
-            }
+        try {
+            locationStatusManager.cleanup()
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error cleaning up location status manager: ${e.message}")
         }
         
         // Do not stop mesh here; ForegroundService owns lifecycle for background reliability

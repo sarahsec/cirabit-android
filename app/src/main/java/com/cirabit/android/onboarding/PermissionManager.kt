@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
-import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
 import com.cirabit.android.R
 
@@ -256,10 +255,10 @@ class PermissionManager(private val context: Context) {
         categories.add(
             PermissionCategory(
                 type = PermissionType.NEARBY_DEVICES,
-                description = context.getString(R.string.perm_nearby_devices_desc),
+                description = "Required to discover cirabit users via Bluetooth",
                 permissions = bluetoothPermissions,
                 isGranted = bluetoothPermissions.all { isPermissionGranted(it) },
-                systemDescription = context.getString(R.string.perm_nearby_devices_system)
+                systemDescription = "Allow cirabit to connect to nearby devices"
             )
         )
 
@@ -272,10 +271,10 @@ class PermissionManager(private val context: Context) {
         categories.add(
             PermissionCategory(
                 type = PermissionType.PRECISE_LOCATION,
-                description = context.getString(R.string.perm_location_desc),
+                description = "Required by Android to discover nearby cirabit users via Bluetooth",
                 permissions = locationPermissions,
                 isGranted = locationPermissions.all { isPermissionGranted(it) },
-                systemDescription = context.getString(R.string.perm_location_system)
+                systemDescription = "cirabit needs this to scan for nearby devices"
             )
         )
 
@@ -311,10 +310,10 @@ class PermissionManager(private val context: Context) {
             categories.add(
                 PermissionCategory(
                     type = PermissionType.NOTIFICATIONS,
-                    description = context.getString(R.string.perm_notifications_desc),
+                    description = "Receive notifications when you receive private messages",
                     permissions = listOf(Manifest.permission.POST_NOTIFICATIONS),
                     isGranted = isPermissionGranted(Manifest.permission.POST_NOTIFICATIONS),
-                    systemDescription = context.getString(R.string.perm_notifications_system)
+                    systemDescription = "Allow cirabit to send you notifications"
                 )
             )
         }
@@ -326,10 +325,10 @@ class PermissionManager(private val context: Context) {
             categories.add(
                 PermissionCategory(
                     type = PermissionType.BATTERY_OPTIMIZATION,
-                    description = context.getString(R.string.perm_battery_desc),
+                    description = "Disable battery optimization to ensure cirabit runs reliably in the background and maintains mesh network connections",
                     permissions = listOf("BATTERY_OPTIMIZATION"), // Custom identifier
                     isGranted = isBatteryOptimizationDisabled(),
-                    systemDescription = context.getString(R.string.perm_battery_system)
+                    systemDescription = "Allow cirabit to run without battery restrictions"
                 )
             )
         }
@@ -349,8 +348,7 @@ class PermissionManager(private val context: Context) {
             appendLine()
             
             getCategorizedPermissions().forEach { category ->
-                val localizedTypeName = context.getString(category.type.labelRes)
-                appendLine("$localizedTypeName: ${if (category.isGranted) "✅ GRANTED" else "❌ MISSING"}")
+                appendLine("${category.type.nameValue}: ${if (category.isGranted) "✅ GRANTED" else "❌ MISSING"}")
                 category.permissions.forEach { permission ->
                     val granted = isPermissionGranted(permission)
                     appendLine("  - ${permission.substringAfterLast(".")}: ${if (granted) "✅" else "❌"}")
@@ -387,13 +385,13 @@ data class PermissionCategory(
     val systemDescription: String
 )
 
-enum class PermissionType(@param:StringRes val labelRes: Int) {
-    NEARBY_DEVICES(R.string.perm_type_nearby_devices),
-    PRECISE_LOCATION(R.string.perm_type_precise_location),
-    BACKGROUND_LOCATION(R.string.perm_type_background_location),
-    MICROPHONE(R.string.perm_type_microphone),
-    NOTIFICATIONS(R.string.perm_type_notifications),
-    WIFI_AWARE(R.string.perm_type_wifi_aware),
-    BATTERY_OPTIMIZATION(R.string.perm_type_battery_optimization),
-    OTHER(R.string.perm_type_other)
+enum class PermissionType(val nameValue: String) {
+    NEARBY_DEVICES("Nearby Devices"),
+    PRECISE_LOCATION("Precise Location"),
+    BACKGROUND_LOCATION("Background Location"),
+    MICROPHONE("Microphone"),
+    NOTIFICATIONS("Notifications"),
+    WIFI_AWARE("Wi‑Fi Aware"),
+    BATTERY_OPTIMIZATION("Battery Optimization"),
+    OTHER("Other")
 }

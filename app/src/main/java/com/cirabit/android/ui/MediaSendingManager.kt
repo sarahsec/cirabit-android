@@ -5,7 +5,6 @@ import com.cirabit.android.mesh.MeshService
 import com.cirabit.android.model.CirabitFilePacket
 import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.model.CirabitMessageType
-import com.cirabit.android.sync.FileMessageIdUtil
 import com.cirabit.android.mesh.PrivateMediaPreparation
 import java.util.Date
 import java.security.MessageDigest
@@ -46,12 +45,6 @@ class MediaSendingManager(
         private const val TAG = "MediaSendingManager"
         private const val MAX_FILE_SIZE = com.cirabit.android.util.AppConstants.Media.MAX_FILE_SIZE_BYTES
         private const val PENDING_PRIVATE_MEDIA_TIMEOUT_MS = 15_000L
-
-        internal fun computeStableFileMessageID(
-            senderPeerID: String,
-            timestampMs: Long,
-            encodedFilePayload: ByteArray
-        ): String = FileMessageIdUtil.computeIdHex(senderPeerID, timestampMs, encodedFilePayload)
     }
 
     // Track in-flight transfer progress: transferId -> messageId and reverse
@@ -692,15 +685,13 @@ class MediaSendingManager(
         val transferId = withContext(mediaWorkDispatcher) {
             sha256Hex(payload)
         }
-        val timestampMs = System.currentTimeMillis()
-        val stableMessageID = computeStableFileMessageID(meshService.myPeerID, timestampMs, payload)
 
         val message = CirabitMessage(
-            id = stableMessageID,
+            id = java.util.UUID.randomUUID().toString().uppercase(), // Generate unique ID for each message
             sender = state.getNicknameValue() ?: meshService.myPeerID,
             content = filePath,
             type = messageType,
-            timestamp = Date(timestampMs),
+            timestamp = Date(),
             isRelay = false,
             senderPeerID = meshService.myPeerID,
             channel = channelOrNull
@@ -724,7 +715,7 @@ class MediaSendingManager(
         )
         
         withContext(mediaWorkDispatcher) {
-            meshService.sendFileBroadcast(filePacket, timestampMs)
+            meshService.sendFileBroadcast(filePacket)
         }
     }
 

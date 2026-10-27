@@ -43,7 +43,7 @@ class ApkWebServer(
         Log.d(TAG, "Request: ${session.method} $uri from ${session.remoteIpAddress}")
 
         return when {
-            uri == "/bitchat.apk" -> {
+            uri == "/cirabit.apk" -> {
                 serveApk()
             }
             uri == "/favicon.ico" -> {
@@ -116,7 +116,7 @@ class ApkWebServer(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Download BitChat</title>
+    <title>Download Cirabit</title>
     <style>
         * {
             margin: 0;
@@ -257,7 +257,7 @@ class ApkWebServer(
 <body>
     <div class="container">
         <div class="logo">🔒</div>
-        <h1>BitChat</h1>
+        <h1>Cirabit</h1>
         <p class="subtitle">Secure Mesh Messaging</p>
 
         <div class="info-grid">
@@ -271,8 +271,8 @@ class ApkWebServer(
             </div>
         </div>
 
-        <a href="/bitchat.apk" class="download-button">
-            📥 Download BitChat
+        <a href="/cirabit.apk" class="download-button">
+            📥 Download Cirabit
         </a>
 
         <div class="instructions">
@@ -288,7 +288,7 @@ class ApkWebServer(
 
         <div class="warning">
             <strong>⚠️ Note:</strong>
-            If you already have BitChat installed, you may need to uninstall it first before installing this version. Make sure to backup your data if needed.
+            If you already have Cirabit installed, you may need to uninstall it first before installing this version. Make sure to backup your data if needed.
         </div>
     </div>
 </body>

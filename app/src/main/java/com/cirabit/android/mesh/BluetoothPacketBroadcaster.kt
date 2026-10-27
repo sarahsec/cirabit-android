@@ -650,45 +650,6 @@ class BluetoothPacketBroadcaster(
             }
         }
     }
-
-    private fun notifyCharacteristicChangedCompat(
-        gattServer: BluetoothGattServer?,
-        device: BluetoothDevice,
-        characteristic: BluetoothGattCharacteristic,
-        data: ByteArray
-    ): Boolean {
-        if (gattServer == null) return false
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gattServer.notifyCharacteristicChanged(device, characteristic, false, data) == BluetoothStatusCodes.SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            run {
-                characteristic.value = data
-                gattServer.notifyCharacteristicChanged(device, characteristic, false)
-            }
-        }
-    }
-
-    private fun writeCharacteristicCompat(
-        gatt: BluetoothGatt?,
-        characteristic: BluetoothGattCharacteristic,
-        data: ByteArray
-    ): Boolean {
-        if (gatt == null) return false
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeCharacteristic(
-                characteristic,
-                data,
-                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            ) == BluetoothStatusCodes.SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            run {
-                characteristic.value = data
-                gatt.writeCharacteristic(characteristic)
-            }
-        }
-    }
     
     /**
      * Get debug information

@@ -65,7 +65,7 @@ if ! [[ "$SOURCE_DATE_EPOCH" =~ ^[0-9]+$ ]]; then
 fi
 CARGO_HOME_PATH="${CARGO_HOME:-$HOME/.cargo}"
 REPRO_RUSTFLAGS=(
-  "--remap-path-prefix=$PROJECT_ROOT=/usr/src/bitchat-android"
+  "--remap-path-prefix=$PROJECT_ROOT=/usr/src/cirabit-android"
   "--remap-path-prefix=$ARTI_SOURCE_DIR=/usr/src/arti"
   "--remap-path-prefix=$CARGO_HOME_PATH=/usr/local/cargo"
 )

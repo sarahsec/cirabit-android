@@ -3,20 +3,22 @@ package com.cirabit.android.identity
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import java.security.MessageDigest
 import android.util.Base64
 import android.util.Log
-import com.cirabit.android.crypto.SecureKeyValueStore
 import com.cirabit.android.model.AuthenticatedPeerState
 import com.cirabit.android.model.PeerCapabilities
 import com.cirabit.android.util.hexEncodedString
+import androidx.core.content.edit
 
 /**
  * Manages persistent identity storage and peer ID rotation - 100% compatible with iOS implementation
  * 
  * Handles:
  * - Static identity key persistence across app sessions
- * - Secure storage using Tink-backed encrypted key-value store
+ * - Secure storage using Android EncryptedSharedPreferences
  * - Fingerprint calculation and identity validation
  */
 class SecureIdentityStateManager {
@@ -44,7 +46,7 @@ class SecureIdentityStateManager {
         private var privateMediaPinsEpoch = 0L
     }
     
-    private val prefs: SecureKeyValueStore
+    private val prefs: SharedPreferences
     private val lock = Any()
     private var privateMediaPinsEpochAtCreation: Long
 
@@ -52,7 +54,19 @@ class SecureIdentityStateManager {
         privateMediaPinsEpochAtCreation = synchronized(privateMediaPinsLock) {
             privateMediaPinsEpoch
         }
-        prefs = SecureKeyValueStore(context, PREFS_NAME)
+        // Create master key for encryption
+        val masterKey = MasterKey.Builder(context, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        
+        // Create encrypted shared preferences
+        prefs = EncryptedSharedPreferences.create(
+            context,
+            PREFS_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
     }
 
     /** Test-only storage injection; production always uses encrypted prefs. */
@@ -61,7 +75,7 @@ class SecureIdentityStateManager {
         privateMediaPinsEpochAtCreation = synchronized(privateMediaPinsLock) {
             privateMediaPinsEpoch
         }
-        this.prefs = SecureKeyValueStore.forTesting(prefs)
+        this.prefs = prefs
     }
     
     // MARK: - Static Key Management
@@ -110,8 +124,10 @@ class SecureIdentityStateManager {
             val privateKeyString = android.util.Base64.encodeToString(privateKey, android.util.Base64.DEFAULT)
             val publicKeyString = android.util.Base64.encodeToString(publicKey, android.util.Base64.DEFAULT)
             
-            prefs.putString(KEY_STATIC_PRIVATE_KEY, privateKeyString)
-            prefs.putString(KEY_STATIC_PUBLIC_KEY, publicKeyString)
+            prefs.edit()
+                .putString(KEY_STATIC_PRIVATE_KEY, privateKeyString)
+                .putString(KEY_STATIC_PUBLIC_KEY, publicKeyString)
+                .apply()
             
             Log.d(TAG, "Saved static identity key to secure storage")
         } catch (e: Exception) {
@@ -166,8 +182,10 @@ class SecureIdentityStateManager {
             val privateKeyString = android.util.Base64.encodeToString(privateKey, android.util.Base64.DEFAULT)
             val publicKeyString = android.util.Base64.encodeToString(publicKey, android.util.Base64.DEFAULT)
             
-            prefs.putString(KEY_SIGNING_PRIVATE_KEY, privateKeyString)
-            prefs.putString(KEY_SIGNING_PUBLIC_KEY, publicKeyString)
+            prefs.edit()
+                .putString(KEY_SIGNING_PRIVATE_KEY, privateKeyString)
+                .putString(KEY_SIGNING_PUBLIC_KEY, publicKeyString)
+                .apply()
             
             Log.d(TAG, "Saved Ed25519 signing key to secure storage")
         } catch (e: Exception) {
@@ -198,7 +216,7 @@ class SecureIdentityStateManager {
     // MARK: - Verified Fingerprints
 
     fun getVerifiedFingerprints(): Set<String> {
-        return prefs.getStringSet(KEY_VERIFIED_FINGERPRINTS, emptySet())
+        return prefs.getStringSet(KEY_VERIFIED_FINGERPRINTS, emptySet())?.toSet() ?: emptySet()
     }
 
     fun isVerifiedFingerprint(fingerprint: String): Boolean {
@@ -208,13 +226,13 @@ class SecureIdentityStateManager {
     fun setVerifiedFingerprint(fingerprint: String, verified: Boolean) {
         if (!isValidFingerprint(fingerprint)) return
         synchronized(lock) {
-            val current = prefs.getStringSet(KEY_VERIFIED_FINGERPRINTS, emptySet()).toMutableSet()
+            val current = prefs.getStringSet(KEY_VERIFIED_FINGERPRINTS, emptySet())?.toMutableSet() ?: mutableSetOf()
             if (verified) {
                 current.add(fingerprint)
             } else {
                 current.remove(fingerprint)
             }
-            prefs.putStringSet(KEY_VERIFIED_FINGERPRINTS, current)
+            prefs.edit { putStringSet(KEY_VERIFIED_FINGERPRINTS, current) }
         }
     }
 
@@ -224,43 +242,31 @@ class SecureIdentityStateManager {
         // if we are paranoid, but SharedPreferences is generally thread-safe for reads.
         // However, to ensure we don't read a partial update (unlikely with SP), we can leave it.
         // The critical part is the write.
-        val entries = prefs.getStringSet(KEY_CACHED_PEER_FINGERPRINTS, emptySet())
+        val entries = prefs.getStringSet(KEY_CACHED_PEER_FINGERPRINTS, emptySet()) ?: return null
         val entry = entries.firstOrNull { it.startsWith("$pid:") } ?: return null
         return entry.substringAfter(':').takeIf { isValidFingerprint(it) }
     }
 
     fun cachePeerFingerprint(peerID: String, fingerprint: String) {
         if (!isValidFingerprint(fingerprint)) return
-        val pid = peerID.lowercase()
-        synchronized(lock) {
-            val current = prefs.getStringSet(KEY_CACHED_PEER_FINGERPRINTS, emptySet()).toMutableSet()
-            current.removeAll { it.startsWith("$pid:") }
-            current.add("$pid:$fingerprint")
-            prefs.putStringSet(KEY_CACHED_PEER_FINGERPRINTS, current)
-        }
+        updateCache(KEY_CACHED_PEER_FINGERPRINTS, ':', mapOf(peerID.lowercase() to fingerprint))
     }
 
     fun getCachedNoiseKey(peerID: String): String? {
         val pid = peerID.lowercase()
-        val entries = prefs.getStringSet(KEY_CACHED_PEER_NOISE_KEYS, emptySet())
+        val entries = prefs.getStringSet(KEY_CACHED_PEER_NOISE_KEYS, emptySet()) ?: return null
         val entry = entries.firstOrNull { it.startsWith("$pid=") } ?: return null
         return entry.substringAfter('=').takeIf { it.matches(Regex("^[a-fA-F0-9]{64}$")) }
     }
 
     fun cachePeerNoiseKey(peerID: String, noiseKeyHex: String) {
         if (!noiseKeyHex.matches(Regex("^[a-fA-F0-9]{64}$"))) return
-        val pid = peerID.lowercase()
-        synchronized(lock) {
-            val current = prefs.getStringSet(KEY_CACHED_PEER_NOISE_KEYS, emptySet()).toMutableSet()
-            current.removeAll { it.startsWith("$pid=") }
-            current.add("$pid=${noiseKeyHex.lowercase()}")
-            prefs.putStringSet(KEY_CACHED_PEER_NOISE_KEYS, current)
-        }
+        updateCache(KEY_CACHED_PEER_NOISE_KEYS, '=', mapOf(peerID.lowercase() to noiseKeyHex.lowercase()))
     }
 
     fun getCachedNoiseFingerprint(noiseKeyHex: String): String? {
         val key = noiseKeyHex.lowercase()
-        val entries = prefs.getStringSet(KEY_CACHED_NOISE_FINGERPRINTS, emptySet())
+        val entries = prefs.getStringSet(KEY_CACHED_NOISE_FINGERPRINTS, emptySet()) ?: return null
         val entry = entries.firstOrNull { it.startsWith("$key=") } ?: return null
         return entry.substringAfter('=').takeIf { isValidFingerprint(it) }
     }
@@ -268,19 +274,13 @@ class SecureIdentityStateManager {
     fun cacheNoiseFingerprint(noiseKeyHex: String, fingerprint: String) {
         if (!isValidFingerprint(fingerprint)) return
         if (!noiseKeyHex.matches(Regex("^[a-fA-F0-9]{64}$"))) return
-        val key = noiseKeyHex.lowercase()
-        synchronized(lock) {
-            val current = prefs.getStringSet(KEY_CACHED_NOISE_FINGERPRINTS, emptySet()).toMutableSet()
-            current.removeAll { it.startsWith("$key=") }
-            current.add("$key=$fingerprint")
-            prefs.putStringSet(KEY_CACHED_NOISE_FINGERPRINTS, current)
-        }
+        updateCache(KEY_CACHED_NOISE_FINGERPRINTS, '=', mapOf(noiseKeyHex.lowercase() to fingerprint))
     }
 
     fun getCachedFingerprintNickname(fingerprint: String): String? {
         if (!isValidFingerprint(fingerprint)) return null
         val key = fingerprint.lowercase()
-        val entries = prefs.getStringSet(KEY_CACHED_FINGERPRINT_NICKNAMES, emptySet())
+        val entries = prefs.getStringSet(KEY_CACHED_FINGERPRINT_NICKNAMES, emptySet()) ?: return null
         val entry = entries.firstOrNull { it.startsWith("$key=") } ?: return null
         val encoded = entry.substringAfter('=')
         return runCatching {
@@ -291,13 +291,53 @@ class SecureIdentityStateManager {
 
     fun cacheFingerprintNickname(fingerprint: String, nickname: String) {
         if (!isValidFingerprint(fingerprint)) return
-        val key = fingerprint.lowercase()
         val encoded = Base64.encodeToString(nickname.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        synchronized(lock) {
-            val current = prefs.getStringSet(KEY_CACHED_FINGERPRINT_NICKNAMES, emptySet()).toMutableSet()
-            current.removeAll { it.startsWith("$key=") }
-            current.add("$key=$encoded")
-            prefs.putStringSet(KEY_CACHED_FINGERPRINT_NICKNAMES, current)
+        updateCache(KEY_CACHED_FINGERPRINT_NICKNAMES, '=', mapOf(fingerprint.lowercase() to encoded))
+    }
+
+    data class CachedPeerIdentity(
+        val peerID: String,
+        val fingerprint: String,
+        val noiseKeyHex: String?,
+        val nickname: String?
+    )
+
+    /** Capture before collecting a snapshot that will be persisted on another dispatcher. */
+    fun cacheGeneration(): Long = synchronized(privateMediaPinsLock) { privateMediaPinsEpoch }
+
+    /** One read and at most one write per cache, fenced against a concurrent panic wipe. */
+    fun cachePeerIdentities(
+        identities: List<CachedPeerIdentity>,
+        generation: Long = cacheGeneration()
+    ) = synchronized(privateMediaPinsLock) {
+        if (generation != privateMediaPinsEpoch) return@synchronized
+        val valid = identities.filter { isValidFingerprint(it.fingerprint) }
+        updateCache(KEY_CACHED_PEER_FINGERPRINTS, ':', valid.associate {
+            it.peerID.lowercase() to it.fingerprint
+        })
+        val withKeys = valid.filter { it.noiseKeyHex?.matches(Regex("^[a-fA-F0-9]{64}$")) == true }
+        updateCache(KEY_CACHED_PEER_NOISE_KEYS, '=', withKeys.associate {
+            it.peerID.lowercase() to it.noiseKeyHex!!.lowercase()
+        })
+        updateCache(KEY_CACHED_NOISE_FINGERPRINTS, '=', withKeys.associate {
+            it.noiseKeyHex!!.lowercase() to it.fingerprint
+        })
+        updateCache(KEY_CACHED_FINGERPRINT_NICKNAMES, '=', valid.mapNotNull {
+            it.nickname?.takeIf(String::isNotBlank)?.let { nickname ->
+                it.fingerprint.lowercase() to Base64.encodeToString(nickname.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            }
+        }.toMap())
+    }
+
+    private fun updateCache(preferenceKey: String, separator: Char, updates: Map<String, String>) {
+        if (updates.isEmpty()) return
+        synchronized(privateMediaPinsLock) {
+            val current = prefs.getStringSet(preferenceKey, emptySet()).orEmpty()
+            val updated = current.filterNotTo(mutableSetOf()) {
+                it.substringBefore(separator) in updates
+            }
+            updates.forEach { (key, value) -> updated.add("$key$separator$value") }
+            if (updated != current) prefs.edit { putStringSet(preferenceKey, updated) }
         }
     }
 
@@ -310,7 +350,7 @@ class SecureIdentityStateManager {
                 return@synchronized false
             }
             prefs.getStringSet(KEY_PRIVATE_MEDIA_CAPABILITY_PINS, emptySet())
-                .any { it.equals(fingerprint, ignoreCase = true) } == true
+                ?.any { it.equals(fingerprint, ignoreCase = true) } == true
         }
     }
 
@@ -448,18 +488,23 @@ class SecureIdentityStateManager {
      * Clear all identity data (for panic mode)
      */
     @SuppressLint("UseKtx")
-    fun clearIdentityData() {
+    /** Returns true only when the wipe was committed to disk. */
+    fun clearIdentityData(): Boolean {
         try {
-            synchronized(privateMediaPinsLock) {
+            val committed = synchronized(privateMediaPinsLock) {
                 privateMediaPinsEpoch += 1
                 privateMediaPinsEpochAtCreation = privateMediaPinsEpoch
-                if (!prefs.edit().clear().commit()) {
-                    Log.e(TAG, "Identity preference wipe could not be committed")
-                }
+                prefs.edit().clear().commit()
+            }
+            if (!committed) {
+                Log.e(TAG, "Identity preference wipe could not be committed")
+                return false
             }
             Log.w(TAG, "All identity data cleared")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear identity data: ${e.message}")
+            return false
         }
     }
     
@@ -476,7 +521,7 @@ class SecureIdentityStateManager {
      * Store a string value in secure preferences
      */
     fun storeSecureValue(key: String, value: String) {
-        prefs.putString(key, value)
+        prefs.edit().putString(key, value).apply()
     }
     
     /**
@@ -490,7 +535,7 @@ class SecureIdentityStateManager {
      * Remove a value from secure preferences
      */
     fun removeSecureValue(key: String) {
-        prefs.remove(key)
+        prefs.edit().remove(key).apply()
     }
     
     /**
@@ -504,9 +549,11 @@ class SecureIdentityStateManager {
      * Clear specific keys from secure preferences
      */
     fun clearSecureValues(vararg keys: String) {
+        val editor = prefs.edit()
         keys.forEach { key ->
-            prefs.remove(key)
+            editor.remove(key)
         }
+        editor.apply()
     }
 
     /** Use for panic paths that must finish the disk mutation before identity reset continues. */

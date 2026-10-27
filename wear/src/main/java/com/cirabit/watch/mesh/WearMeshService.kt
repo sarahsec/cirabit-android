@@ -13,6 +13,7 @@ import com.cirabit.android.mesh.MeshTransport
 import com.cirabit.android.model.RoutedPacket
 import com.cirabit.android.protocol.CirabitPacket
 import com.cirabit.android.services.AppStateStore
+import com.cirabit.android.spam.SpamFilter
 import com.cirabit.android.sync.GossipSyncManager
 import com.cirabit.android.util.AppConstants
 import kotlinx.coroutines.CoroutineScope
@@ -238,6 +239,8 @@ class WearMeshService private constructor(private val context: Context) {
                 try { onPrivateMessage?.invoke(message) } catch (_: Exception) { }
                 true
             }
+            !SpamFilter.isLocalNotice(message) &&
+                SpamFilter.shared.shouldHide(message, SpamFilter.meshSenderKey(message)) -> false
             message.channel != null -> {
                 AppStateStore.addChannelMessage(message.channel, message)
                 true

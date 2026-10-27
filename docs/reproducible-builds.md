@@ -1,6 +1,6 @@
 # Reproducible builds
 
-Bitchat's canonical release build produces byte-for-byte reproducible unsigned
+Cirabit's canonical release build produces byte-for-byte reproducible unsigned
 phone and Wear OS APKs and Android App Bundles (AABs). CI builds the release
 twice in independent jobs and exposes a verified release artifact only when
 every canonical byte matches.
@@ -65,8 +65,8 @@ Android and Gradle images and dependencies. R8's single-threaded deterministic
 mode can exceed an 8 GiB Docker memory limit while optimizing the phone app.
 
 ```bash
-git clone https://github.com/permissionlesstech/bitchat-android.git
-cd bitchat-android
+git clone https://github.com/permissionlesstech/cirabit-android.git
+cd cirabit-android
 git checkout vX.Y.Z
 tools/reproducible-builds/build-in-container.sh \
   .reproducible-build/local-vX.Y.Z
@@ -75,9 +75,9 @@ tools/reproducible-builds/build-in-container.sh \
 The output contains:
 
 - unsigned APKs for arm64, armv7, x86, x86_64, and universal installs
-- `bitchat-android-release-unsigned.aab`
-- `bitchat-android-wear-unsigned.apk`
-- `bitchat-android-wear-release-unsigned.aab`
+- `cirabit-android-release-unsigned.aab`
+- `cirabit-android-wear-unsigned.apk`
+- `cirabit-android-wear-release-unsigned.aab`
 - `BUILDINFO.json`
 - `SHA256SUMS.unsigned`
 
@@ -87,9 +87,9 @@ checkout so the commit in `BUILDINFO.json` identifies all source inputs.
 To test reproducibility yourself, build into two empty directories and compare:
 
 ```bash
-BITCHAT_CONTAINER_GRADLE_HOME_NAME=gradle-home-first \
+CIRABIT_CONTAINER_GRADLE_HOME_NAME=gradle-home-first \
   tools/reproducible-builds/build-in-container.sh .reproducible-build/first
-BITCHAT_CONTAINER_GRADLE_HOME_NAME=gradle-home-second \
+CIRABIT_CONTAINER_GRADLE_HOME_NAME=gradle-home-second \
   tools/reproducible-builds/build-in-container.sh .reproducible-build/second
 tools/reproducible-builds/compare-release.sh \
   .reproducible-build/first \
@@ -114,7 +114,7 @@ That command:
 1. downloads all release APKs, AABs, build information, and checksum files;
 2. verifies the canonical unsigned build's GitHub artifact-attestation subjects
    against this repository;
-3. verifies `BITCHAT_SHA256SUMS`;
+3. verifies `CIRABIT_SHA256SUMS`;
 4. checks that the local source commit is the release commit;
 5. rebuilds in the pinned container; and
 6. byte-compares every unsigned APK, both unsigned AABs, build information, and
@@ -130,11 +130,11 @@ For a manual signature check, use the exact `apksigner` from Android Build Tools
 37.0.0:
 
 ```bash
-apksigner verify --verbose --print-certs bitchat-android-universal.apk
+apksigner verify --verbose --print-certs cirabit-android-universal.apk
 ```
 
 Compare the reported signer certificate SHA-256 with
-`BITCHAT_GITHUB_RELEASE_CERT_SHA256` in `gradle.properties`. A matching
+`CIRABIT_GITHUB_RELEASE_CERT_SHA256` in `gradle.properties`. A matching
 certificate proves who signed the APK; the checksum, attestation, and local
 unsigned rebuild establish which source and build produced it. A third party
 cannot recreate the signed bytes without the private release key.
@@ -144,17 +144,17 @@ uncompressed payload bytes as the reproduced unsigned APK:
 
 ```bash
 tools/reproducible-builds/compare-archive-payloads.sh \
-  .reproducible-build/local-vX.Y.Z/bitchat-android-universal-unsigned.apk \
-  bitchat-android-universal.apk
+  .reproducible-build/local-vX.Y.Z/cirabit-android-universal-unsigned.apk \
+  cirabit-android-universal.apk
 ```
 
 GitHub's manual equivalents are:
 
 ```bash
 gh release download vX.Y.Z
-sha256sum -c BITCHAT_SHA256SUMS
-gh attestation verify bitchat-android-universal-unsigned.apk \
-  --repo permissionlesstech/bitchat-android
+sha256sum -c CIRABIT_SHA256SUMS
+gh attestation verify cirabit-android-universal-unsigned.apk \
+  --repo permissionlesstech/cirabit-android
 ```
 
 ## Verify a Google Play release
@@ -175,7 +175,7 @@ GitHub universal APK or to a locally built APK. Use this procedure instead:
 
    ```bash
    tools/reproducible-builds/compare-archive-payloads.sh \
-     .reproducible-build/local-vX.Y.Z/bitchat-android-release-unsigned.aab \
+     .reproducible-build/local-vX.Y.Z/cirabit-android-release-unsigned.aab \
      downloaded-from-play.aab
    ```
 
@@ -192,14 +192,14 @@ GitHub universal APK or to a locally built APK. Use this procedure instead:
    ```
 
    The signer SHA-256 must equal the Play Console app-signing certificate.
-4. Confirm package name `com.bitchat.droid`, version code, version name, and
+4. Confirm package name `com.cirabit.android`, version code, version name, and
    manifest/security configuration with Android's `apkanalyzer` or `aapt2`.
 5. Recreate Google's split-generation behavior from the reproduced AAB with the
    same `bundletool` version and a saved device specification:
 
    ```bash
    bundletool build-apks \
-     --bundle=bitchat-android-release-unsigned.aab \
+     --bundle=cirabit-android-release-unsigned.aab \
      --output=local.apks \
      --device-spec=device.json
    ```
@@ -212,8 +212,8 @@ record the Play version code and app-signing certificate fingerprint alongside
 the release.
 
 The GitHub workflow builds and attests both canonical unsigned AABs. A
-maintainer locally creates `bitchat-android-play-upload.aab` and
-`bitchat-android-wear-play-upload.aab` from those exact files and uploads them
+maintainer locally creates `cirabit-android-play-upload.aab` and
+`cirabit-android-wear-play-upload.aab` from those exact files and uploads them
 manually to Google Play.
 
 ## Maintainer release process

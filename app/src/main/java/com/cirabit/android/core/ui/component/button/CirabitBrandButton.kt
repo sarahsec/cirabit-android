@@ -22,7 +22,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.cirabit.android.core.ui.icon.BitChatIcon
+import com.cirabit.android.core.ui.icon.CirabitIcon
 import com.cirabit.android.ui.rememberPressScale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -32,7 +32,7 @@ import kotlin.time.Duration.Companion.milliseconds
 private val MultiClickThreshold = 300.milliseconds
 
 @Composable
-fun BitChatBrandButton(
+fun CirabitBrandButton(
     onClick: () -> Unit,
     onTripleClick: () -> Unit,
     contentDescription: String,
@@ -81,7 +81,7 @@ fun BitChatBrandButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = BitChatIcon,
+            imageVector = CirabitIcon,
             contentDescription = contentDescription,
             tint = tint,
             modifier = Modifier

@@ -1,7 +1,6 @@
 package com.cirabit.android.protocol
 
 import android.os.Parcelable
-import com.cirabit.android.model.MessageReaction
 import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
 import java.nio.ByteBuffer
@@ -19,99 +18,12 @@ enum class MessageType(val value: UByte) {
     NOISE_ENCRYPTED(0x11u),  // Noise encrypted transport message
     FRAGMENT(0x20u), // Fragmentation for large packets
     REQUEST_SYNC(0x21u), // GCS-based sync request
-    FILE_TRANSFER(0x22u), // File transfer packet (BLE voice notes, etc.)
-    MSG_REACTION(0x23u), // Emoji reaction update for an existing message
+    FILE_TRANSFER(0x22u), // New: File transfer packet (BLE voice notes, etc.)
     VOICE_FRAME(0x29u); // Ephemeral live push-to-talk frame; never added to gossip sync
 
     companion object {
         fun fromValue(value: UByte): MessageType? {
             return values().find { it.value == value }
-        }
-    }
-}
-
-/**
- * Binary payload codec for message reactions.
- *
- * Layout:
- * - Version: 1 byte
- * - Flags: 1 byte (bit 0 = isRemoval)
- * - MessageIDLength: 1 byte
- * - EmojiLength: 1 byte
- * - ReactorLength: 1 byte
- * - MessageID bytes (UTF-8)
- * - Emoji bytes (UTF-8)
- * - Reactor bytes (UTF-8)
- */
-object MessageReactionCodec {
-    private const val VERSION_1: UByte = 1u
-    private const val FLAG_REMOVAL: UByte = 0x01u
-    private const val HEADER_SIZE = 5
-
-    fun encode(reaction: MessageReaction): ByteArray? {
-        return try {
-            val messageIDBytes = reaction.messageID.toByteArray(Charsets.UTF_8)
-            val emojiBytes = reaction.emoji.toByteArray(Charsets.UTF_8)
-            val reactorBytes = reaction.reactorPeerID.toByteArray(Charsets.UTF_8)
-
-            if (messageIDBytes.isEmpty() || emojiBytes.isEmpty() || reactorBytes.isEmpty()) return null
-            if (messageIDBytes.size > 255 || emojiBytes.size > 255 || reactorBytes.size > 255) return null
-
-            val buffer = ByteBuffer.allocate(
-                HEADER_SIZE + messageIDBytes.size + emojiBytes.size + reactorBytes.size
-            ).apply { order(ByteOrder.BIG_ENDIAN) }
-
-            var flags: UByte = 0u
-            if (reaction.isRemoval) {
-                flags = flags or FLAG_REMOVAL
-            }
-
-            buffer.put(VERSION_1.toByte())
-            buffer.put(flags.toByte())
-            buffer.put(messageIDBytes.size.toByte())
-            buffer.put(emojiBytes.size.toByte())
-            buffer.put(reactorBytes.size.toByte())
-            buffer.put(messageIDBytes)
-            buffer.put(emojiBytes)
-            buffer.put(reactorBytes)
-
-            return buffer.array()
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    fun decode(payload: ByteArray): MessageReaction? {
-        try {
-            if (payload.size < HEADER_SIZE) return null
-            val buffer = ByteBuffer.wrap(payload).apply { order(ByteOrder.BIG_ENDIAN) }
-
-            val version = buffer.get().toUByte()
-            if (version != VERSION_1) return null
-
-            val flags = buffer.get().toUByte()
-            val messageIDLength = buffer.get().toInt() and 0xFF
-            val emojiLength = buffer.get().toInt() and 0xFF
-            val reactorLength = buffer.get().toInt() and 0xFF
-
-            if (messageIDLength == 0 || emojiLength == 0 || reactorLength == 0) return null
-            if (buffer.remaining() != messageIDLength + emojiLength + reactorLength) return null
-
-            val messageIDBytes = ByteArray(messageIDLength)
-            val emojiBytes = ByteArray(emojiLength)
-            val reactorBytes = ByteArray(reactorLength)
-            buffer.get(messageIDBytes)
-            buffer.get(emojiBytes)
-            buffer.get(reactorBytes)
-
-            return MessageReaction(
-                messageID = String(messageIDBytes, Charsets.UTF_8),
-                emoji = String(emojiBytes, Charsets.UTF_8),
-                reactorPeerID = String(reactorBytes, Charsets.UTF_8),
-                isRemoval = (flags and FLAG_REMOVAL) != 0u.toUByte()
-            )
-        } catch (_: Exception) {
-            return null
         }
     }
 }
@@ -309,15 +221,6 @@ object BinaryProtocol {
         return when (version) {
             1u.toUByte() -> HEADER_SIZE_V1
             else -> HEADER_SIZE_V2  // v2+ will use 4-byte payload length
-        }
-    }
-
-    private fun maxAllowedPayloadLength(type: UByte): Long {
-        return if (type == MessageType.FILE_TRANSFER.value) {
-            com.cirabit.android.util.AppConstants.Media.MAX_INCOMING_FILE_BYTES +
-                com.cirabit.android.util.AppConstants.Media.MAX_FILE_PACKET_OVERHEAD_BYTES
-        } else {
-            com.cirabit.android.util.AppConstants.Protocol.MAX_PAYLOAD_LENGTH.toLong()
         }
     }
     
@@ -528,18 +431,18 @@ object BinaryProtocol {
                 buffer.getShort().toUShort().toUInt()  // 2 bytes for v1, convert to UInt
             }
 
-            val maxPayloadLength = maxAllowedPayloadLength(type)
-            if (payloadLength.toLong() > maxPayloadLength) {
-                Log.w(
-                    "BinaryProtocol",
-                    "Payload length $payloadLength exceeds maximum allowed ($maxPayloadLength) for type=$type"
-                )
+            if (payloadLength > com.cirabit.android.util.AppConstants.Protocol.MAX_PAYLOAD_LENGTH.toUInt()) {
+                Log.w("BinaryProtocol", "Payload length ${payloadLength} exceeds maximum allowed (${com.cirabit.android.util.AppConstants.Protocol.MAX_PAYLOAD_LENGTH})")
                 return null
             }
 
-            // Calculate expected total size
-            var expectedSize = headerSize.toLong() + SENDER_ID_SIZE.toLong() + payloadLength.toLong()
-            if (hasRecipient) expectedSize += RECIPIENT_ID_SIZE.toLong()
+            // Per-type ceiling on the decoded payload, compressed or not, checked
+            // before any allocation: see PacketPayloadLimits for why one
+            // frame-wide cap is not enough.
+            val maxPayloadSize = PacketPayloadLimits.maxPayloadBytes(type)
+
+            var expectedSize = headerSize + SENDER_ID_SIZE + payloadLength.toInt()
+            if (hasRecipient) expectedSize += RECIPIENT_ID_SIZE
             var routeCount = 0
             if (hasRoute) {
                 // Peek count (1 byte) without consuming buffer for now
@@ -554,11 +457,11 @@ object BinaryProtocol {
                 if (raw.size >= routeOffset + 1) {
                     routeCount = raw[routeOffset].toUByte().toInt()
                 }
-                expectedSize += 1L + (routeCount.toLong() * SENDER_ID_SIZE.toLong())
+                expectedSize += 1 + (routeCount * SENDER_ID_SIZE)
             }
-            if (hasSignature) expectedSize += SIGNATURE_SIZE.toLong()
+            if (hasSignature) expectedSize += SIGNATURE_SIZE
 
-            if (raw.size.toLong() < expectedSize) return null
+            if (raw.size < expectedSize) return null
             
             // SenderID
             val senderID = ByteArray(SENDER_ID_SIZE)
@@ -599,10 +502,11 @@ object BinaryProtocol {
                 } else {
                     buffer.getShort().toUShort().toInt()
                 }
-                if (originalSize <= 0 || originalSize.toLong() > maxPayloadLength) {
+
+                if (originalSize <= 0 || originalSize > maxPayloadSize) {
                     Log.w(
                         "BinaryProtocol",
-                        "Compressed original payload size $originalSize exceeds maximum allowed ($maxPayloadLength) for type=$type"
+                        "Expanded payload size $originalSize for type $type is outside the allowed range 1..$maxPayloadSize"
                     )
                     return null
                 }
@@ -614,9 +518,8 @@ object BinaryProtocol {
                     return null
                 }
                 // Security check: Compression bomb protection
-                val ratio = originalSize.toDouble() / compressedSize.toDouble()
-                if (ratio > 50_000.0) {
-                    Log.w("BinaryProtocol", "🚫 Suspicious compression ratio: ${ratio}:1")
+                if (originalSize.toLong() > compressedSize.toLong() * PacketPayloadLimits.MAX_DEFLATE_RATIO) {
+                    Log.w("BinaryProtocol", "🚫 Impossible compression ratio: $originalSize bytes from $compressedSize")
                     return null
                 }
                 
@@ -639,6 +542,12 @@ object BinaryProtocol {
                 }
                 expandedPayload
             } else {
+                // Uncompressed payloads get the same ceiling, or a large frame
+                // could arrive as small compressed fragments and be reassembled.
+                if (payloadLength > maxPayloadSize.toUInt()) {
+                    Log.w("BinaryProtocol", "Payload for type $type is $payloadLength bytes (cap $maxPayloadSize)")
+                    return null
+                }
                 val payloadBytes = ByteArray(payloadLength.toInt())
                 buffer.get(payloadBytes)
                 payloadBytes

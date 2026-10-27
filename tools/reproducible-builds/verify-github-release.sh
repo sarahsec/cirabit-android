@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TAG="${1:?usage: verify-github-release.sh TAG [--no-rebuild]}"
 MODE="${2:-}"
-REPOSITORY="${BITCHAT_GITHUB_REPOSITORY:-permissionlesstech/bitchat-android}"
+REPOSITORY="${CIRABIT_GITHUB_REPOSITORY:-permissionlesstech/cirabit-android}"
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
@@ -37,23 +37,23 @@ mkdir -p "$DOWNLOAD_DIR"
 gh release download "$TAG" \
   --repo "$REPOSITORY" \
   --dir "$DOWNLOAD_DIR" \
-  --pattern 'BITCHAT_BUILDINFO.json' \
-  --pattern 'BITCHAT_SHA256SUMS' \
-  --pattern 'BITCHAT_SHA256SUMS.unsigned' \
-  --pattern 'bitchat-android-*.apk' \
-  --pattern 'bitchat-android-*.aab'
+  --pattern 'CIRABIT_BUILDINFO.json' \
+  --pattern 'CIRABIT_SHA256SUMS' \
+  --pattern 'CIRABIT_SHA256SUMS.unsigned' \
+  --pattern 'cirabit-android-*.apk' \
+  --pattern 'cirabit-android-*.aab'
 
 attested_artifacts=(
-  BITCHAT_BUILDINFO.json
-  BITCHAT_SHA256SUMS.unsigned
-  bitchat-android-arm64-unsigned.apk
-  bitchat-android-armv7-unsigned.apk
-  bitchat-android-release-unsigned.aab
-  bitchat-android-universal-unsigned.apk
-  bitchat-android-wear-release-unsigned.aab
-  bitchat-android-wear-unsigned.apk
-  bitchat-android-x86-unsigned.apk
-  bitchat-android-x86_64-unsigned.apk
+  CIRABIT_BUILDINFO.json
+  CIRABIT_SHA256SUMS.unsigned
+  cirabit-android-arm64-unsigned.apk
+  cirabit-android-armv7-unsigned.apk
+  cirabit-android-release-unsigned.aab
+  cirabit-android-universal-unsigned.apk
+  cirabit-android-wear-release-unsigned.aab
+  cirabit-android-wear-unsigned.apk
+  cirabit-android-x86-unsigned.apk
+  cirabit-android-x86_64-unsigned.apk
 )
 for artifact in "${attested_artifacts[@]}"; do
   if [ ! -f "$DOWNLOAD_DIR/$artifact" ]; then
@@ -66,13 +66,13 @@ echo "GitHub provenance attestations for the canonical unsigned build verified."
 
 (
   cd "$DOWNLOAD_DIR"
-  "${SHA256[@]}" -c BITCHAT_SHA256SUMS
+  "${SHA256[@]}" -c CIRABIT_SHA256SUMS
 )
 echo "GitHub release checksums verified."
 
-mv "$DOWNLOAD_DIR/BITCHAT_BUILDINFO.json" "$DOWNLOAD_DIR/BUILDINFO.json"
-mv "$DOWNLOAD_DIR/BITCHAT_SHA256SUMS" "$DOWNLOAD_DIR/SHA256SUMS"
-mv "$DOWNLOAD_DIR/BITCHAT_SHA256SUMS.unsigned" "$DOWNLOAD_DIR/SHA256SUMS.unsigned"
+mv "$DOWNLOAD_DIR/CIRABIT_BUILDINFO.json" "$DOWNLOAD_DIR/BUILDINFO.json"
+mv "$DOWNLOAD_DIR/CIRABIT_SHA256SUMS" "$DOWNLOAD_DIR/SHA256SUMS"
+mv "$DOWNLOAD_DIR/CIRABIT_SHA256SUMS.unsigned" "$DOWNLOAD_DIR/SHA256SUMS.unsigned"
 
 if [ "$MODE" = "--no-rebuild" ]; then
   exit 0

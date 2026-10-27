@@ -14,7 +14,6 @@ debug_keystore/
 *.keystore
 debug.keystore
 app/release
-.kotlin/
 
 # Gradle
 /build/
@@ -71,37 +70,6 @@ google-services.json
 # Arti build artifacts (cloned repo and Rust build cache)
 tools/arti-build/.arti-source/
 tools/arti-build/target/
-
-signing.properties
-keystore/
-release-artifacts/
-
-# IDE / Editors
-.idea/
-*.iml
-.vscode/
-.fleet/
-.eclipse/
-*.suo
-*.user
-.vs/
-*.swp
-*~
-.goosehints
-
-# AI / Agents
-.goosehints
-.cursor/
-.cursorignore
-.cursorindexingignore
-CLAUDE.md
-.claude/
-.aider*
-.continue/
-.codeium/
-.copilot/
-codex.md
-.codex/
 .reproducible-build/
 
 # JVM heap dumps (a Gradle daemon OOM drops these in the repo root)

@@ -17,19 +17,19 @@ class ApkDownloadSourceTest {
     private val source = ApkDownloadSource(
         id = "mirror-one",
         displayName = "Mirror One",
-        latestApkUrl = "https://mirror.example/bitchat-universal.apk"
+        latestApkUrl = "https://mirror.example/cirabit-universal.apk"
     )
     private val now = 1_700_000_000_000L
 
     @Test
     fun `default source downloads the stable latest universal asset directly`() {
         assertEquals(
-            "https://github.com/permissionlesstech/bitchat-android/releases/latest/" +
-                "download/bitchat-android-universal.apk",
+            "https://github.com/permissionlesstech/cirabit-android/releases/latest/" +
+                "download/cirabit-android-universal.apk",
             DefaultApkDownloadSources.all.single().latestApkUrls.first()
         )
         assertEquals(
-            "https://github.com/permissionlesstech/bitchat-android/releases/latest/" +
+            "https://github.com/permissionlesstech/cirabit-android/releases/latest/" +
                 "download/app-universal-release.apk",
             DefaultApkDownloadSources.all.single().latestApkUrls[1]
         )

@@ -198,12 +198,12 @@ and never crash or allocate unreasonable memory for attacker-controlled data.
 
 #### Inner payloads and TLVs
 
-- [ ] Fuzz `BitchatMessage.fromBinaryPayload`.
+- [ ] Fuzz `CirabitMessage.fromBinaryPayload`.
 - [ ] Fuzz `IdentityAnnouncement.decode`.
 - [ ] Fuzz `AuthenticatedPeerState.decode`.
 - [ ] Fuzz `PrivateMessagePacket.decode`.
 - [ ] Fuzz `NoisePayload.decode`.
-- [ ] Fuzz `BitchatFilePacket.decode`.
+- [ ] Fuzz `CirabitFilePacket.decode`.
 - [ ] Fuzz `FragmentPayload.decode`.
 - [ ] Fuzz `RequestSyncPacket.decode`.
 - [ ] Test missing, duplicated, reordered, unknown, and zero-length TLVs.
