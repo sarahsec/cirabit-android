@@ -1,7 +1,7 @@
 [versions]
 # Android and Kotlin
 agp = "9.3.1"
-kotlin = "2.4.10"
+kotlin = "2.4.21"
 compileSdk = "37"
 minSdk = "26" # API 26 for proper BLE support
 targetSdk = "37"
@@ -29,7 +29,7 @@ wear-tooling-preview = "1.0.0"
 wear-ongoing = "1.1.0"
 
 # Cryptography
-bouncycastle = "1.85"
+bouncycastle = "1.86"
 tink-android = "1.23.0"
 
 # JSON
