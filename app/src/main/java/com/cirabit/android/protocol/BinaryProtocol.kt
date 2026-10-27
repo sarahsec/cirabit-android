@@ -2,6 +2,7 @@ package com.cirabit.android.protocol
 
 import android.os.Parcelable
 import com.cirabit.android.model.MessageReaction
+import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -19,7 +20,8 @@ enum class MessageType(val value: UByte) {
     FRAGMENT(0x20u), // Fragmentation for large packets
     REQUEST_SYNC(0x21u), // GCS-based sync request
     FILE_TRANSFER(0x22u), // File transfer packet (BLE voice notes, etc.)
-    MSG_REACTION(0x23u); // Emoji reaction update for an existing message
+    MSG_REACTION(0x23u), // Emoji reaction update for an existing message
+    VOICE_FRAME(0x29u); // Ephemeral live push-to-talk frame; never added to gossip sync
 
     companion object {
         fun fromValue(value: UByte): MessageType? {
@@ -122,9 +124,30 @@ object SpecialRecipients {
 }
 
 /**
+ * Payload as it arrived on the wire, set by [BinaryProtocol.decode].
+ *
+ * Signatures cover a re-encoding of the packet, and verification re-encodes too.
+ * DEFLATE output is not canonical and clients use different encoders
+ * (java.util.zip.Deflater here, Apple's compression_encode_buffer on iOS), so
+ * re-compressing can change the preimage and reject a valid packet. Reusing these
+ * bytes also stops a relay, which re-encodes on TTL decrement, from substituting
+ * its own encoding.
+ *
+ * [forPayload] ties the bytes to the payload they decode to: replace the payload
+ * and the encoder compresses instead.
+ *
+ * Not a data class: generated equals/hashCode over ByteArray compares references.
+ */
+class WirePayload(
+    val bytes: ByteArray,
+    val compressed: Boolean,
+    val forPayload: ByteArray
+)
+
+/**
  * Binary packet format - 100% backward compatible with iOS version
  *
- * Header (13 bytes for v1, 15 bytes for v2):
+ * Header (14 bytes for v1, 16 bytes for v2):
  * - Version: 1 byte
  * - Type: 1 byte
  * - TTL: 1 byte
@@ -148,7 +171,10 @@ data class CirabitPacket(
     val payload: ByteArray,
     var signature: ByteArray? = null,  // Changed from val to var for packet signing
     var ttl: UByte,
-    var route: List<ByteArray>? = null // Optional source route: ordered list of peerIDs (8 bytes each), not including sender and final recipient
+    var route: List<ByteArray>? = null, // Optional source route: ordered list of peerIDs (8 bytes each), not including sender and final recipient
+    // Set by BinaryProtocol.decode. Not part of packet identity, so it stays out of
+    // the parcel, equals and hashCode. Losing it only costs a re-compression.
+    @IgnoredOnParcel val wirePayload: WirePayload? = null
 ) : Parcelable {
 
     constructor(
@@ -167,8 +193,8 @@ data class CirabitPacket(
         ttl = ttl
     )
 
-    fun toBinaryData(): ByteArray? {
-        return BinaryProtocol.encode(this)
+    fun toBinaryData(padding: Boolean = true): ByteArray? {
+        return BinaryProtocol.encode(this, padding = padding)
     }
 
     /**
@@ -187,7 +213,8 @@ data class CirabitPacket(
             payload = payload,
             signature = null, // Remove signature for signing
             route = route,
-            ttl = com.cirabit.android.util.AppConstants.SYNC_TTL_HOPS // Use fixed TTL=0 for signing to ensure relay compatibility
+            ttl = com.cirabit.android.util.AppConstants.SYNC_TTL_HOPS, // Use fixed TTL=0 for signing to ensure relay compatibility
+            wirePayload = wirePayload // preimage must use the originator's bytes
         )
         return BinaryProtocol.encode(unsignedPacket)
     }
@@ -266,12 +293,11 @@ data class CirabitPacket(
  * Binary Protocol implementation - supports v1 and v2, backward compatible
  */
 object BinaryProtocol {
-    private const val HEADER_SIZE_V1 = 13
-    private const val HEADER_SIZE_V2 = 15
+    private const val HEADER_SIZE_V1 = 14
+    private const val HEADER_SIZE_V2 = 16
     private const val SENDER_ID_SIZE = 8
     private const val RECIPIENT_ID_SIZE = 8
     private const val SIGNATURE_SIZE = 64
-
     object Flags {
         const val HAS_RECIPIENT: UByte = 0x01u
         const val HAS_SIGNATURE: UByte = 0x02u
@@ -295,14 +321,33 @@ object BinaryProtocol {
         }
     }
     
-    fun encode(packet: CirabitPacket): ByteArray? {
+    fun encode(packet: CirabitPacket, padding: Boolean = true): ByteArray? {
         try {
+            val maxPayloadLength = com.cirabit.android.util.AppConstants.Protocol.MAX_PAYLOAD_LENGTH
+            if (packet.payload.size > maxPayloadLength) {
+                Log.w(
+                    "BinaryProtocol",
+                    "Cannot encode payload ${packet.payload.size} above receiver limit $maxPayloadLength"
+                )
+                return null
+            }
+
             // Try to compress payload if beneficial
             var payload = packet.payload
             var originalPayloadSize: Int? = null
             var isCompressed = false
             
-            if (CompressionUtil.shouldCompress(payload)) {
+            // Re-encode of a decoded packet: reuse the originator's bytes (see WirePayload).
+            val wire = packet.wirePayload
+            if (wire != null && wire.forPayload.contentEquals(packet.payload)) {
+                if (wire.compressed) {
+                    payload = wire.bytes
+                    originalPayloadSize = packet.payload.size
+                    isCompressed = true
+                }
+                // Uncompressed on the wire: keep it that way. shouldCompress agrees
+                // across clients, but the "only if smaller" check need not.
+            } else if (CompressionUtil.shouldCompress(payload)) {
                 CompressionUtil.compress(payload)?.let { compressedPayload ->
                     originalPayloadSize = payload.size
                     payload = compressedPayload
@@ -352,6 +397,10 @@ object BinaryProtocol {
             if (packet.version >= 2u.toUByte()) {
                 buffer.putInt(payloadDataSize)  // 4 bytes for v2+
             } else {
+                if (payloadDataSize > 0xFFFF || (originalPayloadSize ?: 0) > 0xFFFF) {
+                    Log.w("BinaryProtocol", "Cannot encode oversized v1 packet payload: $payloadDataSize bytes")
+                    return null
+                }
                 buffer.putShort(payloadDataSize.toShort())  // 2 bytes for v1
             }
             
@@ -403,11 +452,13 @@ object BinaryProtocol {
             buffer.rewind()
             buffer.get(result)
             
-            // Apply padding to standard block sizes for traffic analysis resistance
-            val optimalSize = MessagePadding.optimalBlockSize(result.size)
-            val paddedData = MessagePadding.pad(result, optimalSize)
+            // Apply padding if requested (iOS-compatible: selective padding for privacy)
+            if (padding) {
+                val optimalSize = MessagePadding.optimalBlockSize(result.size)
+                return MessagePadding.pad(result, optimalSize)
+            }
             
-            return paddedData
+            return result
             
         } catch (e: Exception) {
             Log.e("BinaryProtocol", "Error encoding packet type ${packet.type}: ${e.message}")
@@ -415,21 +466,36 @@ object BinaryProtocol {
         }
     }
     
-    fun decode(data: ByteArray): CirabitPacket? {
+    fun decode(data: ByteArray): CirabitPacket? =
+        decode(data, CompressionUtil::decompressWithResourcesReserved)
+
+    /** Test seam used to prove rejected expansion sizes never reach inflation. */
+    internal fun decodeForTesting(
+        data: ByteArray,
+        decompress: (ByteArray, Int) -> ByteArray?
+    ): CirabitPacket? = decode(data, decompress)
+
+    private fun decode(
+        data: ByteArray,
+        decompress: (ByteArray, Int) -> ByteArray?
+    ): CirabitPacket? {
         // Try decode as-is first (robust when padding wasn't applied) - iOS fix
-        decodeCore(data)?.let { return it }
+        decodeCore(data, decompress)?.let { return it }
         
         // If that fails, try after removing padding
         val unpadded = MessagePadding.unpad(data)
         if (unpadded.contentEquals(data)) return null // No padding was removed, already failed
         
-        return decodeCore(unpadded)
+        return decodeCore(unpadded, decompress)
     }
     
     /**
      * Core decoding implementation used by decode() with and without padding removal - iOS fix
      */
-    private fun decodeCore(raw: ByteArray): CirabitPacket? {
+    private fun decodeCore(
+        raw: ByteArray,
+        decompress: (ByteArray, Int) -> ByteArray?
+    ): CirabitPacket? {
         try {
             if (raw.size < HEADER_SIZE_V1 + SENDER_ID_SIZE) return null
 
@@ -522,6 +588,8 @@ object BinaryProtocol {
             } else null
 
             // Payload
+            // Kept so the packet can be re-encoded byte-identically (see WirePayload).
+            var receivedCompressed: ByteArray? = null
             val payload = if (isCompressed) {
                 val lengthFieldBytes = if (version >= 2u.toUByte()) 4 else 2
                 if (payloadLength.toInt() < lengthFieldBytes) return null
@@ -531,7 +599,7 @@ object BinaryProtocol {
                 } else {
                     buffer.getShort().toUShort().toInt()
                 }
-                if (originalSize < 0 || originalSize.toLong() > maxPayloadLength) {
+                if (originalSize <= 0 || originalSize.toLong() > maxPayloadLength) {
                     Log.w(
                         "BinaryProtocol",
                         "Compressed original payload size $originalSize exceeds maximum allowed ($maxPayloadLength) for type=$type"
@@ -541,20 +609,35 @@ object BinaryProtocol {
                 
                 // Compressed payload
                 val compressedSize = payloadLength.toInt() - lengthFieldBytes
-                val compressedPayload = ByteArray(compressedSize)
-                buffer.get(compressedPayload)
-
+                if (compressedSize == 0) {
+                    Log.w("BinaryProtocol", "Compressed payload has no deflate bytes")
+                    return null
+                }
                 // Security check: Compression bomb protection
-                if (compressedSize > 0) {
-                    val ratio = originalSize.toDouble() / compressedSize.toDouble()
-                    if (ratio > 50_000.0) {
-                        Log.w("BinaryProtocol", "🚫 Suspicious compression ratio: ${ratio}:1")
-                        return null
-                    }
+                val ratio = originalSize.toDouble() / compressedSize.toDouble()
+                if (ratio > 50_000.0) {
+                    Log.w("BinaryProtocol", "🚫 Suspicious compression ratio: ${ratio}:1")
+                    return null
                 }
                 
-                // Decompress
-                CompressionUtil.decompress(compressedPayload, originalSize) ?: return null
+                // Reserve the compressed copy plus expanded output before either allocation.
+                // Small packets share the memory pool; packets wait only while its budget is full.
+                val resourceBytes = compressedSize.toLong() + originalSize.toLong()
+                val expandedPayload = CompressionUtil.withDecompressionResources(resourceBytes) {
+                    val compressedPayload = ByteArray(compressedSize)
+                    buffer.get(compressedPayload)
+                    // Captured here so the allocation stays inside the reservation.
+                    receivedCompressed = compressedPayload
+                    decompress(compressedPayload, originalSize)
+                } ?: return null
+                if (expandedPayload.size != originalSize) {
+                    Log.w(
+                        "BinaryProtocol",
+                        "Expanded payload size ${expandedPayload.size} did not match declared size $originalSize"
+                    )
+                    return null
+                }
+                expandedPayload
             } else {
                 val payloadBytes = ByteArray(payloadLength.toInt())
                 buffer.get(payloadBytes)
@@ -577,7 +660,12 @@ object BinaryProtocol {
                 payload = payload,
                 signature = signature,
                 ttl = ttl,
-                route = route
+                route = route,
+                wirePayload = WirePayload(
+                    bytes = receivedCompressed ?: payload,
+                    compressed = receivedCompressed != null,
+                    forPayload = payload
+                )
             )
             
         } catch (e: Exception) {

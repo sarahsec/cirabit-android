@@ -1,10 +1,13 @@
 package com.cirabit.android.ui
 
 import android.content.Context
-import com.cirabit.android.mesh.BluetoothMeshService
+import com.cirabit.android.mesh.MeshService
 import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.R
 import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * Handles processing of IRC-style commands
@@ -14,7 +17,8 @@ class CommandProcessor(
     private val state: ChatState,
     private val messageManager: MessageManager,
     private val channelManager: ChannelManager,
-    private val privateChatManager: PrivateChatManager
+    private val privateChatManager: PrivateChatManager,
+    private val coroutineScope: CoroutineScope? = null
 ) {
     
     // Available commands list
@@ -25,6 +29,7 @@ class CommandProcessor(
         CommandSuggestion("/hug", emptyList(), "<nickname>", context.getString(R.string.command_desc_hug)),
         CommandSuggestion("/j", listOf("/join"), "<channel>", "Join or create a channel"),
         CommandSuggestion("/m", listOf("/msg"), "<nickname> [message]", "Send private message"),
+        CommandSuggestion("/pay", emptyList(), "<token> [public]", "Send a Cashu ecash token"),
         CommandSuggestion("/slap", emptyList(), "<nickname>", context.getString(R.string.command_desc_slap)),
         CommandSuggestion("/unblock", emptyList(), "<nickname>", "Unblock a peer"),
         CommandSuggestion("/w", emptyList(), null, "See who's online")
@@ -32,21 +37,22 @@ class CommandProcessor(
     
     // MARK: - Command Processing
     
-    fun processCommand(command: String, meshService: BluetoothMeshService, myPeerID: String, onSendMessage: (String, List<String>, String?) -> Unit, viewModel: ChatViewModel? = null): Boolean {
+    fun processCommand(command: String, meshService: MeshService, myPeerID: String, onSendMessage: (String, List<String>, String?) -> Unit, viewModel: ChatViewModel? = null): Boolean {
         if (!command.startsWith("/")) return false
         
         val parts = command.split(" ")
         val cmd = parts.first().lowercase()
         when (cmd) {
             "/j", "/join" -> handleJoinCommand(parts, myPeerID)
-            "/m", "/msg" -> handleMessageCommand(parts, meshService)
+            "/m", "/msg" -> handleMessageCommand(parts, meshService, viewModel)
+            "/pay" -> handlePayCommand(command, meshService, myPeerID, onSendMessage, viewModel)
             "/w" -> handleWhoCommand(meshService, viewModel)
             "/clear" -> handleClearCommand()
             "/pass" -> handlePassCommand(parts, myPeerID)
             "/block" -> handleBlockCommand(parts, meshService)
             "/unblock" -> handleUnblockCommand(parts, meshService)
-            "/hug" -> handleActionCommand(parts, R.string.command_action_hug_format, meshService, myPeerID, onSendMessage)
-            "/slap" -> handleActionCommand(parts, R.string.command_action_slap_format, meshService, myPeerID, onSendMessage)
+            "/hug" -> handleActionCommand(parts, R.string.command_action_hug_format, meshService, myPeerID, onSendMessage, viewModel)
+            "/slap" -> handleActionCommand(parts, R.string.command_action_slap_format, meshService, myPeerID, onSendMessage, viewModel)
             "/channels" -> handleChannelsCommand()
             else -> handleUnknownCommand(cmd)
         }
@@ -80,7 +86,7 @@ class CommandProcessor(
         }
     }
     
-    private fun handleMessageCommand(parts: List<String>, meshService: BluetoothMeshService) {
+    private fun handleMessageCommand(parts: List<String>, meshService: MeshService, viewModel: ChatViewModel?) {
         if (parts.size > 1) {
             val targetName = parts[1].removePrefix("@")
             val peerID = getPeerIDForNickname(targetName, meshService)
@@ -92,16 +98,15 @@ class CommandProcessor(
                     if (parts.size > 2) {
                         val messageContent = parts.drop(2).joinToString(" ")
                         val recipientNickname = getPeerNickname(peerID, meshService)
-                        privateChatManager.sendPrivateMessage(
+                        sendPrivateMessage(
                             messageContent, 
                             peerID, 
                             recipientNickname,
                             state.getNicknameValue(),
-                            getMyPeerID(meshService)
-                        ) { content, peerIdParam, recipientNicknameParam, messageId ->
-                            // This would trigger the actual mesh service send
-                            sendPrivateMessageVia(meshService, content, peerIdParam, recipientNicknameParam, messageId)
-                        }
+                            getMyPeerID(meshService),
+                            meshService,
+                            viewModel
+                        )
                     } else {
                         val systemMessage = CirabitMessage(
                             sender = "system",
@@ -132,7 +137,7 @@ class CommandProcessor(
         }
     }
     
-    private fun handleWhoCommand(meshService: BluetoothMeshService, viewModel: ChatViewModel? = null) {
+    private fun handleWhoCommand(meshService: MeshService, viewModel: ChatViewModel? = null) {
         // Channel-aware who command (matches iOS behavior)
         val (peerList, contextDescription) = if (viewModel != null) {
             when (val selectedChannel = viewModel.selectedLocationChannel.value) {
@@ -192,6 +197,9 @@ class CommandProcessor(
                 // Clear private chat
                 val peerID = state.getSelectedPrivateChatPeerValue()!!
                 messageManager.clearPrivateMessages(peerID)
+                // `/clear` removes history but should not navigate away from the chat the
+                // command was issued in. A later message will repopulate this conversation.
+                state.setSelectedPrivateChatPeer(peerID)
             }
             state.getCurrentChannelValue() != null -> {
                 // Clear channel messages
@@ -251,7 +259,7 @@ class CommandProcessor(
         }
     }
     
-    private fun handleBlockCommand(parts: List<String>, meshService: BluetoothMeshService) {
+    private fun handleBlockCommand(parts: List<String>, meshService: MeshService) {
         if (parts.size > 1) {
             val targetName = parts[1].removePrefix("@")
             privateChatManager.blockPeerByNickname(targetName, meshService)
@@ -268,7 +276,7 @@ class CommandProcessor(
         }
     }
     
-    private fun handleUnblockCommand(parts: List<String>, meshService: BluetoothMeshService) {
+    private fun handleUnblockCommand(parts: List<String>, meshService: MeshService) {
         if (parts.size > 1) {
             val targetName = parts[1].removePrefix("@")
             privateChatManager.unblockPeerByNickname(targetName, meshService)
@@ -286,9 +294,10 @@ class CommandProcessor(
     private fun handleActionCommand(
         parts: List<String>, 
         actionMessageFormatRes: Int,
-        meshService: BluetoothMeshService,
+        meshService: MeshService,
         myPeerID: String,
-        onSendMessage: (String, List<String>, String?) -> Unit
+        onSendMessage: (String, List<String>, String?) -> Unit,
+        viewModel: ChatViewModel?
     ) {
         if (parts.size > 1) {
             val targetName = parts[1].removePrefix("@")
@@ -302,15 +311,15 @@ class CommandProcessor(
             // Send as regular message
             if (state.getSelectedPrivateChatPeerValue() != null) {
                 val peerID = state.getSelectedPrivateChatPeerValue()!!
-                privateChatManager.sendPrivateMessage(
+                sendPrivateMessage(
                     actionMessage,
                     peerID,
                     getPeerNickname(peerID, meshService),
                     state.getNicknameValue(),
-                    myPeerID
-                ) { content, peerIdParam, recipientNicknameParam, messageId ->
-                    sendPrivateMessageVia(meshService, content, peerIdParam, recipientNicknameParam, messageId)
-                }
+                    myPeerID,
+                    meshService,
+                    viewModel
+                )
             } else if (isInLocationChannel) {
                 // Let the transport layer add the echo; just send it out
                 onSendMessage(actionMessage, emptyList(), null)
@@ -362,6 +371,95 @@ class CommandProcessor(
         )
         messageManager.addMessage(systemMessage)
     }
+
+    private fun handlePayCommand(
+        command: String,
+        meshService: MeshService,
+        myPeerID: String,
+        onSendMessage: (String, List<String>, String?) -> Unit,
+        viewModel: ChatViewModel?
+    ) {
+        val args = command.trim().split(Regex("\\s+")).drop(1)
+        if (args.isEmpty()) {
+            addSystemMessage("usage: /pay <cashu token> [public] — Cashu tokens are bearer instruments")
+            return
+        }
+
+        val publicConfirmed = args.lastOrNull()?.equals("public", ignoreCase = true) == true
+        val rawToken = if (publicConfirmed) args.dropLast(1).joinToString(" ") else args.joinToString(" ")
+        val token = CashuTokenDecoder.bareToken(rawToken)
+        val info = token?.let { CashuTokenDecoder.decode(it, strict = true) }
+        if (token == null || info == null) {
+            addSystemMessage("invalid cashu token — not sending it")
+            return
+        }
+
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        if (selectedPeer != null) {
+            privateChatManager.sendPrivateMessage(
+                token,
+                selectedPeer,
+                getPeerNickname(selectedPeer, meshService),
+                state.getNicknameValue(),
+                myPeerID
+            ) { content, peerID, recipientNickname, messageId ->
+                sendPrivateMessageVia(meshService, content, peerID, recipientNickname, messageId, viewModel)
+            }
+        } else {
+            if (!publicConfirmed) {
+                addSystemMessage(
+                    "Cashu tokens are bearer instruments. Anyone here can redeem this token. " +
+                        "Confirm with: /pay <token> public"
+                )
+                return
+            }
+            val isLocationChannel =
+                state.selectedLocationChannel.value is com.cirabit.android.geohash.ChannelID.Location
+            if (!isLocationChannel) {
+                val message = CirabitMessage(
+                    sender = state.getNicknameValue() ?: myPeerID,
+                    content = token,
+                    timestamp = Date(),
+                    isRelay = false,
+                    senderPeerID = myPeerID,
+                    channel = state.getCurrentChannelValue()
+                )
+                val channel = state.getCurrentChannelValue()
+                if (channel != null) channelManager.addChannelMessage(channel, message, myPeerID)
+                else messageManager.addMessage(message)
+            }
+            onSendMessage(token, emptyList(), state.getCurrentChannelValue())
+        }
+
+        addSystemMessage(
+            "sent ${info.displayAmount ?: "Cashu token"} — bearer token; first redeemer wins"
+        )
+    }
+
+    private fun addSystemMessage(content: String) {
+        val message = CirabitMessage(
+            sender = "system",
+            content = content,
+            timestamp = Date(),
+            isRelay = false
+        )
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val selectedLocationChannel = state.selectedLocationChannel.value
+        val channel = state.getCurrentChannelValue()
+        when {
+            selectedPeer != null -> {
+                messageManager.addPrivateMessageNoUnread(selectedPeer, message.copy(isPrivate = true))
+            }
+            selectedLocationChannel is com.cirabit.android.geohash.ChannelID.Location -> {
+                messageManager.addChannelMessage(
+                    "geo:${selectedLocationChannel.channel.geohash}",
+                    message
+                )
+            }
+            channel != null -> channelManager.addChannelMessage(channel, message, null)
+            else -> messageManager.addMessage(message)
+        }
+    }
     
     private fun handleUnknownCommand(cmd: String) {
         val systemMessage = CirabitMessage(
@@ -373,6 +471,18 @@ class CommandProcessor(
         messageManager.addMessage(systemMessage)
     }
     
+    /**
+     * Dismiss the command and mention popups. The composer clears its field in code
+     * after a send, which does not run onValueChange, so the popups need an explicit
+     * clear.
+     */
+    fun clearSuggestions() {
+        state.setShowCommandSuggestions(false)
+        state.setCommandSuggestions(emptyList())
+        state.setShowMentionSuggestions(false)
+        state.setMentionSuggestions(emptyList())
+    }
+
     // MARK: - Command Autocomplete
 
     fun updateCommandSuggestions(input: String) {
@@ -409,7 +519,12 @@ class CommandProcessor(
             emptyList()
         }
         
-        return baseCommands + channelCommands
+        val isPublicGeohash =
+            state.getSelectedPrivateChatPeerValue() == null &&
+                state.selectedLocationChannel.value is com.cirabit.android.geohash.ChannelID.Location
+        return (baseCommands + channelCommands).filterNot {
+            isPublicGeohash && it.command == "/pay"
+        }
     }
     
     private fun filterCommands(commands: List<CommandSuggestion>, input: String): List<CommandSuggestion> {
@@ -429,7 +544,7 @@ class CommandProcessor(
     
     // MARK: - Mention Autocomplete
     
-    fun updateMentionSuggestions(input: String, meshService: BluetoothMeshService, viewModel: ChatViewModel? = null) {
+    fun updateMentionSuggestions(input: String, meshService: MeshService, viewModel: ChatViewModel? = null) {
         // Check if input contains @ and we're at the end of a word or at the end of input
         val atIndex = input.lastIndexOf('@')
         if (atIndex == -1) {
@@ -454,18 +569,28 @@ class CommandProcessor(
                 is com.cirabit.android.geohash.ChannelID.Mesh,
                 null -> {
                     // Mesh channel: use Bluetooth mesh peer nicknames
-                    meshService.getPeerNicknames().values.filter { it != meshService.getPeerNicknames()[meshService.myPeerID] }
+                    val peerNicknames = meshService.getPeerNicknames()
+                    peerNicknames.values.filter { it != peerNicknames[meshService.myPeerID] }
                 }
                 
                 is com.cirabit.android.geohash.ChannelID.Location -> {
                     // Location channel: use geohash participants with collision-resistant suffixes
-                    val geohashPeople = viewModel.geohashPeople.value ?: emptyList()
+                    val geohashPeople = viewModel.geohashPeople.value
                     val currentNickname = state.getNicknameValue()
+                    val duplicateNames = duplicateGeohashBaseNames(geohashPeople)
                     
                     geohashPeople.mapNotNull { person ->
-                        val displayName = person.displayName
-                        // Exclude self from suggestions
-                        if (displayName.startsWith("${currentNickname}#")) {
+                        val baseName = splitSuffix(person.displayName).first
+                        val hasNicknameCollision =
+                            baseName.lowercase(Locale.ROOT) in duplicateNames
+                        val displayName = disambiguatedGeohashDisplayName(person, duplicateNames)
+                        // A unique local nickname can be excluded directly. If it collides, the
+                        // nickname alone cannot identify which row is self, so keep the suffixed
+                        // rows rather than accidentally hiding the other user.
+                        if (
+                            !hasNicknameCollision &&
+                            baseName.equals(currentNickname, ignoreCase = true)
+                        ) {
                             null
                         } else {
                             displayName
@@ -475,13 +600,11 @@ class CommandProcessor(
             }
         } else {
             // Fallback to mesh peers if no viewModel available
-            meshService.getPeerNicknames().values.filter { it != meshService.getPeerNicknames()[meshService.myPeerID] }
+            val peerNicknames = meshService.getPeerNicknames()
+            peerNicknames.values.filter { it != peerNicknames[meshService.myPeerID] }
         }
         
-        // Filter nicknames based on the text after @
-        val filteredNicknames = peerCandidates.filter { nickname ->
-            nickname.startsWith(textAfterAt, ignoreCase = true)
-        }.sorted()
+        val filteredNicknames = filterMentionCandidates(peerCandidates, textAfterAt)
         
         if (filteredNicknames.isNotEmpty()) {
             state.setMentionSuggestions(filteredNicknames)
@@ -509,19 +632,96 @@ class CommandProcessor(
     
     // MARK: - Utility Functions
     
-    private fun getPeerIDForNickname(nickname: String, meshService: BluetoothMeshService): String? {
+    private fun getPeerIDForNickname(nickname: String, meshService: MeshService): String? {
         return meshService.getPeerNicknames().entries.find { it.value == nickname }?.key
     }
     
-    private fun getPeerNickname(peerID: String, meshService: BluetoothMeshService): String {
-        return meshService.getPeerNicknames()[peerID] ?: peerID
+    private fun getPeerNickname(peerID: String, meshService: MeshService): String {
+        return meshService.getPeerNicknames()[peerID]
+            ?: peerID
     }
     
-    private fun getMyPeerID(meshService: BluetoothMeshService): String {
+    private fun getMyPeerID(meshService: MeshService): String {
         return meshService.myPeerID
     }
-    
-    private fun sendPrivateMessageVia(meshService: BluetoothMeshService, content: String, peerID: String, recipientNickname: String, messageId: String) {
-        meshService.sendPrivateMessage(content, peerID, recipientNickname, messageId)
+
+    private fun sendPrivateMessage(
+        content: String,
+        peerID: String,
+        recipientNickname: String?,
+        senderNickname: String?,
+        myPeerID: String,
+        meshService: MeshService,
+        viewModel: ChatViewModel?
+    ) {
+        val send: (String, String, String, String) -> Unit =
+            { messageContent, peerIdParam, recipientNicknameParam, messageId ->
+                sendPrivateMessageVia(
+                    meshService,
+                    messageContent,
+                    peerIdParam,
+                    recipientNicknameParam,
+                    messageId,
+                    viewModel
+                )
+            }
+        val scope = coroutineScope
+        if (scope == null) {
+            privateChatManager.sendPrivateMessage(
+                content,
+                peerID,
+                recipientNickname,
+                senderNickname,
+                myPeerID,
+                send
+            )
+        } else {
+            scope.launch {
+                privateChatManager.sendPrivateMessageDurably(
+                    content,
+                    peerID,
+                    recipientNickname,
+                    senderNickname,
+                    myPeerID,
+                    send
+                )
+            }
+        }
     }
+
+    private fun sendPrivateMessageVia(
+        meshService: MeshService,
+        content: String,
+        peerID: String,
+        recipientNickname: String,
+        messageId: String,
+        viewModel: ChatViewModel?
+    ) {
+        if (viewModel != null) {
+            com.cirabit.android.services.MessageRouter
+                .getInstance(viewModel.getApplication(), meshService)
+                .sendPrivate(content, peerID, recipientNickname, messageId)
+        } else {
+            meshService.sendPrivateMessage(content, peerID, recipientNickname, messageId)
+        }
+    }
+}
+
+/**
+ * Keep mention autocomplete useful in crowded channels: a bare `anon` identity has not announced
+ * a username and is not actionable. Names such as `anon1234` are announced usernames and remain
+ * valid mention targets.
+ */
+internal fun filterMentionCandidates(
+    candidates: List<String>,
+    query: String
+): List<String> {
+    return candidates.asSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .filterNot(::isUnannouncedNickname)
+        .filter { nickname -> nickname.startsWith(query, ignoreCase = true) }
+        .distinctBy { nickname -> nickname.lowercase(Locale.ROOT) }
+        .sortedWith(String.CASE_INSENSITIVE_ORDER)
+        .toList()
 }

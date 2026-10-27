@@ -3,7 +3,7 @@ package com.cirabit.android.service
 import android.app.Application
 import android.os.Process
 import androidx.core.app.NotificationManagerCompat
-import com.cirabit.android.mesh.BluetoothMeshService
+import com.cirabit.android.mesh.MeshService
 import com.cirabit.android.net.ArtiTorManager
 import com.cirabit.android.net.TorMode
 import kotlinx.coroutines.CoroutineScope
@@ -39,7 +39,7 @@ object AppShutdownCoordinator {
 
     fun requestFullShutdownAndKill(
         app: Application,
-        mesh: BluetoothMeshService?,
+        mesh: MeshService?,
         notificationManager: NotificationManagerCompat,
         stopForeground: () -> Unit,
         stopService: () -> Unit
@@ -56,11 +56,19 @@ object AppShutdownCoordinator {
 
             // Stop mesh (best-effort)
             try { mesh?.stopServices() } catch (_: Exception) { }
+            try { com.cirabit.android.nostr.NostrRelayManager.shared.disconnect() } catch (_: Exception) { }
+            try { com.cirabit.android.mesh.PowerManager.getInstance(app).shutdown() } catch (_: Exception) { }
 
             // Stop Tor temporarily (do not change user setting)
             val torProvider = ArtiTorManager.getInstance()
             val torStop = async {
                 try { torProvider.applyMode(app, TorMode.OFF) } catch (_: Exception) { }
+            }
+            val conversationFlush = async {
+                try {
+                    com.cirabit.android.services.AppStateStore
+                        .awaitConversationPersistence()
+                } catch (_: Exception) { }
             }
 
             // Clear AppState in-memory store
@@ -73,6 +81,7 @@ object AppShutdownCoordinator {
             // Wait up to 5 seconds for shutdown tasks
             withTimeoutOrNull(5000) {
                 try { torStop.await() } catch (_: Exception) { }
+                try { conversationFlush.await() } catch (_: Exception) { }
                 delay(100)
             }
 

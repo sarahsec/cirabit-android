@@ -4,10 +4,11 @@ import android.content.Context
 import com.cirabit.android.R
 import com.cirabit.android.favorites.FavoritesPersistenceService
 import com.cirabit.android.identity.SecureIdentityStateManager
-import com.cirabit.android.mesh.BluetoothMeshService
+import com.cirabit.android.mesh.MeshService
 import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.noise.NoiseSession
 import com.cirabit.android.nostr.GeohashAliasRegistry
+import com.cirabit.android.services.ContactIdentityResolver
 import com.cirabit.android.services.VerificationService
 import com.cirabit.android.util.dataFromHexString
 import com.cirabit.android.util.hexEncodedString
@@ -26,14 +27,14 @@ import java.util.concurrent.ConcurrentHashMap
 class VerificationHandler(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val getMeshService: () -> BluetoothMeshService,
+    private val getMeshService: () -> MeshService,
     private val identityManager: SecureIdentityStateManager,
     private val state: ChatState,
     private val notificationManager: NotificationManager,
     private val messageManager: MessageManager
 ) {
     // Helper to get current mesh service (may change after panic clear)
-    private val meshService: BluetoothMeshService
+    private val meshService: MeshService
         get() = getMeshService()
 
     private val _verifiedFingerprints = MutableStateFlow<Set<String>>(emptySet())
@@ -185,6 +186,9 @@ class VerificationHandler(
         val hexRegex = Regex("^[0-9a-fA-F]+$")
         return try {
             when {
+                ContactIdentityResolver.isContactConversationId(peerID) -> {
+                    ContactIdentityResolver.fingerprintFromContactConversationId(peerID)
+                }
                 peerID.length == 64 && peerID.matches(hexRegex) -> {
                     identityManager.getCachedNoiseFingerprint(peerID)?.let { return it }
                     fingerprintFromNoiseHex(peerID)?.also { identityManager.cacheNoiseFingerprint(peerID, it) }
