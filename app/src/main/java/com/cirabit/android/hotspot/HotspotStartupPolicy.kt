@@ -16,7 +16,7 @@ internal object HotspotStartupPolicy {
     const val P2P_DISABLED_MESSAGE =
         "Wi-Fi Direct is unavailable. Turn Wi-Fi off and back on, then try again."
     /** Marks groups this app creates. Shared with [HotspotManager] so the two cannot drift. */
-    const val SSID_PREFIX = "DIRECT-BC-" // BC for BitChat
+    const val SSID_PREFIX = "DIRECT-BC-" // BC for Cirabit
 
     const val P2P_UNSUPPORTED_MESSAGE = "Wi-Fi Direct is not supported on this device."
     const val P2P_BUSY_MESSAGE = "Wi-Fi Direct is busy. Please try again in a moment."

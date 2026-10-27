@@ -1,6 +1,6 @@
 ---
 name: mesh-lab
-description: Run, diagnose, and extend bitchat Android Mesh Lab physical-device tests. Use this skill whenever work capable of changing physical peer behavior touches mesh discovery or routing, BLE or Wi-Fi transport, Noise/crypto/identity, foreground-service or power behavior, public or private messaging, file/media transfer, protocol packets, or fragmentation; whenever a user asks for physical-device validation, ADB test hooks, hardware regression reproduction, or a new Mesh Lab scenario; and before claiming that such changes work on real devices, even if the user does not name Mesh Lab explicitly. Do not use it for docs-only, unit-test-only, or pure UI changes that cannot affect mesh or service behavior.
+description: Run, diagnose, and extend cirabit Android Mesh Lab physical-device tests. Use this skill whenever work capable of changing physical peer behavior touches mesh discovery or routing, BLE or Wi-Fi transport, Noise/crypto/identity, foreground-service or power behavior, public or private messaging, file/media transfer, protocol packets, or fragmentation; whenever a user asks for physical-device validation, ADB test hooks, hardware regression reproduction, or a new Mesh Lab scenario; and before claiming that such changes work on real devices, even if the user does not name Mesh Lab explicitly. Do not use it for docs-only, unit-test-only, or pure UI changes that cannot affect mesh or service behavior.
 ---
 
 # Mesh Lab
@@ -22,7 +22,7 @@ Before choosing commands or changing a scenario:
 4. Inspect the selected scenario function in `tools/release_gate/mesh_lab.py`;
    its current CLI and assertions are authoritative if documentation has drifted.
 5. Inspect
-   `app/src/debug/java/com/bitchat/android/testhook/TestHookDriver.kt` before
+   `app/src/debug/java/com/cirabit/android/testhook/TestHookDriver.kt` before
    using an ad-hoc command, diagnosing hook behavior, or extending coverage.
 
 Do not infer a physical pass from unit tests, compilation, old evidence, or a
@@ -59,7 +59,7 @@ and changes wake/lock-screen timeout settings without restoring them.
 - Use two authorized physical Android BLE devices on API 26 or newer. Emulators
   do not exercise the required BLE mesh behavior.
 - Before `setup`, `identity_reset`, or `all`, confirm that the selected devices
-  may have bitchat app data cleared. `identity_reset` clears device B even when
+  may have cirabit app data cleared. `identity_reset` clears device B even when
   setup was skipped. If the user has not already established authorization, ask.
 - Never attempt to defeat a secure lock screen. Ask the operator to unlock it.
 - Keep every device unlocked, awake, foregrounded, and preferably charging.
@@ -171,7 +171,7 @@ python3 tools/release_gate/mesh_lab.py cmd \
   --serial "$MESH_SERIAL_A" state
 
 adb -s "$MESH_SERIAL_A" logcat -d -t 200 -s \
-  TestHook MessageHandler FragmentManager BitchatFilePacket
+  TestHook MessageHandler FragmentManager CirabitFilePacket
 ```
 
 Common first checks are screen/foreground state, mutual discovery, direct-peer

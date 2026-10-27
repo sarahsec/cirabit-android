@@ -1,6 +1,6 @@
 # Android maintainer release guide
 
-This is the operational runbook for publishing a Bitchat Android release to
+This is the operational runbook for publishing a Cirabit Android release to
 GitHub and Google Play. Follow it from top to bottom for every release.
 
 The central rule is:
@@ -12,7 +12,7 @@ No keystore or password is stored in GitHub, GitHub Actions, the repository,
 release notes, or workflow artifacts.
 
 This runbook releases both the phone and Wear OS apps under the shared Play
-application ID `com.bitchat.droid`. Wear releases use the independent version
+application ID `com.cirabit.android`. Wear releases use the independent version
 code range beginning at `1000000001`; every phone and Wear artifact uploaded to
 one Play listing must have a unique version code.
 
@@ -40,7 +40,7 @@ These are four separate signing identities:
    commit. It is created locally by `git tag -s`.
 2. **GitHub APK signature**: lets Android install and update the APKs published
    on GitHub. Use the existing GitHub release key. Its certificate SHA-256 must
-   match `BITCHAT_GITHUB_RELEASE_CERT_SHA256` in `gradle.properties`.
+   match `CIRABIT_GITHUB_RELEASE_CERT_SHA256` in `gradle.properties`.
 3. **Play upload signature**: the maintainer signs both AABs with the Play
    upload key so Play will accept them.
 4. **Play app signature**: Google generates device APKs and signs them with the
@@ -61,9 +61,9 @@ The maintainer needs:
 
 - permission to push a release tag and create GitHub Releases;
 - a GitHub CLI login authorized for
-  `permissionlesstech/bitchat-android`;
+  `permissionlesstech/cirabit-android`;
 - Play Console permission to create and promote releases for
-  `com.bitchat.droid`; and
+  `com.cirabit.android`; and
 - access to the project's release approval record.
 
 Check the GitHub login:
@@ -144,7 +144,7 @@ git log -1 --oneline
 Set shell variables for the rest of the release:
 
 ```bash
-export REPOSITORY=permissionlesstech/bitchat-android
+export REPOSITORY=permissionlesstech/cirabit-android
 export TAG=vX.Y.Z
 export VERSION_CODE=NN
 export WEAR_VERSION_CODE=1000000001
@@ -167,7 +167,7 @@ Stop if either `test` command fails.
 Create a signed annotated tag on the approved commit:
 
 ```bash
-git tag -s "$TAG" -m "Bitchat Android $TAG"
+git tag -s "$TAG" -m "Cirabit Android $TAG"
 git tag -v "$TAG"
 git push origin "$TAG"
 ```
@@ -247,14 +247,14 @@ The directory must initially contain exactly these canonical files:
 
 - `BUILDINFO.json`
 - `SHA256SUMS.unsigned`
-- `bitchat-android-arm64-unsigned.apk`
-- `bitchat-android-armv7-unsigned.apk`
-- `bitchat-android-universal-unsigned.apk`
-- `bitchat-android-x86-unsigned.apk`
-- `bitchat-android-x86_64-unsigned.apk`
-- `bitchat-android-release-unsigned.aab`
-- `bitchat-android-wear-unsigned.apk`
-- `bitchat-android-wear-release-unsigned.aab`
+- `cirabit-android-arm64-unsigned.apk`
+- `cirabit-android-armv7-unsigned.apk`
+- `cirabit-android-universal-unsigned.apk`
+- `cirabit-android-x86-unsigned.apk`
+- `cirabit-android-x86_64-unsigned.apk`
+- `cirabit-android-release-unsigned.aab`
+- `cirabit-android-wear-unsigned.apk`
+- `cirabit-android-wear-release-unsigned.aab`
 
 Verify the checksum manifest:
 
@@ -300,16 +300,16 @@ manager without placing their values in shell history:
 
 ```bash
 export ANDROID_SDK_ROOT=/secure/path/to/android-sdk
-export BITCHAT_GITHUB_KEYSTORE=/secure/path/to/github-release.jks
-export BITCHAT_GITHUB_KEY_ALIAS=release-key-alias
+export CIRABIT_GITHUB_KEYSTORE=/secure/path/to/github-release.jks
+export CIRABIT_GITHUB_KEY_ALIAS=release-key-alias
 
 printf 'GitHub keystore password: '
-IFS= read -r -s BITCHAT_GITHUB_KEYSTORE_PASSWORD
+IFS= read -r -s CIRABIT_GITHUB_KEYSTORE_PASSWORD
 printf '\nGitHub key password: '
-IFS= read -r -s BITCHAT_GITHUB_KEY_PASSWORD
+IFS= read -r -s CIRABIT_GITHUB_KEY_PASSWORD
 printf '\n'
-export BITCHAT_GITHUB_KEYSTORE_PASSWORD
-export BITCHAT_GITHUB_KEY_PASSWORD
+export CIRABIT_GITHUB_KEYSTORE_PASSWORD
+export CIRABIT_GITHUB_KEY_PASSWORD
 ```
 
 Run:
@@ -330,10 +330,10 @@ The helper:
 
 It creates:
 
-- `bitchat-android-arm64.apk`
-- `bitchat-android-universal.apk`
-- `bitchat-android-wear.apk`
-- `bitchat-android-x86_64.apk`
+- `cirabit-android-arm64.apk`
+- `cirabit-android-universal.apk`
+- `cirabit-android-wear.apk`
+- `cirabit-android-x86_64.apk`
 
 The unsigned armv7 and x86 APKs remain available for reproducibility, but are
 not published as signed install targets under the current release policy.
@@ -348,16 +348,16 @@ Set the pinned JDK and Play upload-key locations, then load the passwords:
 
 ```bash
 export JAVA_HOME=/secure/path/to/jdk-21
-export BITCHAT_PLAY_UPLOAD_KEYSTORE=/secure/path/to/play-upload.jks
-export BITCHAT_PLAY_UPLOAD_KEY_ALIAS=upload-key-alias
+export CIRABIT_PLAY_UPLOAD_KEYSTORE=/secure/path/to/play-upload.jks
+export CIRABIT_PLAY_UPLOAD_KEY_ALIAS=upload-key-alias
 
 printf 'Play upload keystore password: '
-IFS= read -r -s BITCHAT_PLAY_KEYSTORE_PASSWORD
+IFS= read -r -s CIRABIT_PLAY_KEYSTORE_PASSWORD
 printf '\nPlay upload key password: '
-IFS= read -r -s BITCHAT_PLAY_KEY_PASSWORD
+IFS= read -r -s CIRABIT_PLAY_KEY_PASSWORD
 printf '\n'
-export BITCHAT_PLAY_KEYSTORE_PASSWORD
-export BITCHAT_PLAY_KEY_PASSWORD
+export CIRABIT_PLAY_KEYSTORE_PASSWORD
+export CIRABIT_PLAY_KEY_PASSWORD
 ```
 
 Run:
@@ -366,16 +366,16 @@ Run:
 tools/reproducible-builds/sign-play-bundle.sh "$RELEASE_DIR"
 ```
 
-The helper creates `bitchat-android-play-upload.aab` and
-`bitchat-android-wear-play-upload.aab`, verifies their JAR signatures, proves
+The helper creates `cirabit-android-play-upload.aab` and
+`cirabit-android-wear-play-upload.aab`, verifies their JAR signatures, proves
 that every non-signature payload entry matches the corresponding canonical
 unsigned AAB, and updates `SHA256SUMS`.
 
 These are the only files to upload to Play Console:
 
 ```text
-release-X.Y.Z/bitchat-android-play-upload.aab
-release-X.Y.Z/bitchat-android-wear-play-upload.aab
+release-X.Y.Z/cirabit-android-play-upload.aab
+release-X.Y.Z/cirabit-android-wear-play-upload.aab
 ```
 
 Do not upload an APK or either `*-release-unsigned.aab` to Play. Do not open
@@ -384,10 +384,10 @@ Android Studio and rebuild the bundles.
 Remove passwords from the environment after both signing steps:
 
 ```bash
-unset BITCHAT_GITHUB_KEYSTORE_PASSWORD
-unset BITCHAT_GITHUB_KEY_PASSWORD
-unset BITCHAT_PLAY_KEYSTORE_PASSWORD
-unset BITCHAT_PLAY_KEY_PASSWORD
+unset CIRABIT_GITHUB_KEYSTORE_PASSWORD
+unset CIRABIT_GITHUB_KEY_PASSWORD
+unset CIRABIT_PLAY_KEYSTORE_PASSWORD
+unset CIRABIT_PLAY_KEY_PASSWORD
 ```
 
 ## 7. Prepare all GitHub Release assets
@@ -405,19 +405,19 @@ The final GitHub Release must contain all 17 files below:
 
 | Asset | Signed? | Why it is published |
 |---|---:|---|
-| `bitchat-android-arm64.apk` | APK release key | Primary direct-install APK |
-| `bitchat-android-universal.apk` | APK release key | Fallback direct-install APK |
-| `bitchat-android-x86_64.apk` | APK release key | x86_64 install APK |
-| `bitchat-android-wear.apk` | APK release key | Wear OS direct-install APK |
-| Five phone `bitchat-android-*-unsigned.apk` files | No | Reproducibility inputs for every phone ABI target |
-| `bitchat-android-release-unsigned.aab` | No | Canonical reproducible Play input |
-| `bitchat-android-play-upload.aab` | Play upload key | Exact bundle uploaded to Play |
-| `bitchat-android-wear-unsigned.apk` | No | Canonical reproducible Wear install input |
-| `bitchat-android-wear-release-unsigned.aab` | No | Canonical reproducible Wear Play input |
-| `bitchat-android-wear-play-upload.aab` | Play upload key | Exact bundle uploaded to the Wear OS track |
-| `BITCHAT_BUILDINFO.json` | GitHub attestation | Source commit and pinned toolchain |
-| `BITCHAT_SHA256SUMS.unsigned` | GitHub attestation | Original canonical CI manifest |
-| `BITCHAT_SHA256SUMS` | No detached signature | SHA-256 for every published asset |
+| `cirabit-android-arm64.apk` | APK release key | Primary direct-install APK |
+| `cirabit-android-universal.apk` | APK release key | Fallback direct-install APK |
+| `cirabit-android-x86_64.apk` | APK release key | x86_64 install APK |
+| `cirabit-android-wear.apk` | APK release key | Wear OS direct-install APK |
+| Five phone `cirabit-android-*-unsigned.apk` files | No | Reproducibility inputs for every phone ABI target |
+| `cirabit-android-release-unsigned.aab` | No | Canonical reproducible Play input |
+| `cirabit-android-play-upload.aab` | Play upload key | Exact bundle uploaded to Play |
+| `cirabit-android-wear-unsigned.apk` | No | Canonical reproducible Wear install input |
+| `cirabit-android-wear-release-unsigned.aab` | No | Canonical reproducible Wear Play input |
+| `cirabit-android-wear-play-upload.aab` | Play upload key | Exact bundle uploaded to the Wear OS track |
+| `CIRABIT_BUILDINFO.json` | GitHub attestation | Source commit and pinned toolchain |
+| `CIRABIT_SHA256SUMS.unsigned` | GitHub attestation | Original canonical CI manifest |
+| `CIRABIT_SHA256SUMS` | No detached signature | SHA-256 for every published asset |
 
 Run the public checksum verification once more:
 
@@ -425,9 +425,9 @@ Run the public checksum verification once more:
 (
   cd "$RELEASE_DIR"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c BITCHAT_SHA256SUMS
+    sha256sum -c CIRABIT_SHA256SUMS
   else
-    shasum -a 256 -c BITCHAT_SHA256SUMS
+    shasum -a 256 -c CIRABIT_SHA256SUMS
   fi
 )
 ```
@@ -440,7 +440,7 @@ local paths, or device/user identifiers to this directory.
 Create a local release-notes file. At minimum it must contain:
 
 ```markdown
-## Bitchat Android vX.Y.Z
+## Cirabit Android vX.Y.Z
 
 - Version code: NN
 - Wear version: 0.1.0 (code 1000000001)
@@ -470,7 +470,7 @@ gh release create "$TAG" "$RELEASE_DIR"/* \
   --repo "$REPOSITORY" \
   --verify-tag \
   --draft \
-  --title "Bitchat Android $TAG" \
+  --title "Cirabit Android $TAG" \
   --notes-file "release-notes-$TAG.md"
 ```
 
@@ -488,11 +488,11 @@ Keep it as a draft until the Play internal-track checks below pass.
 
 ## 9. Upload and test the AABs in Google Play
 
-1. Open Play Console and select `com.bitchat.droid`.
+1. Open Play Console and select `com.cirabit.android`.
 2. Open **Test and release > Testing > Internal testing**.
 3. Create a new release.
 4. Upload exactly:
-   `release-X.Y.Z/bitchat-android-play-upload.aab`.
+   `release-X.Y.Z/cirabit-android-play-upload.aab`.
 5. Confirm Play accepts the upload signature and reports the expected package,
    `versionCode`, and `versionName`.
 6. Add the user-visible Play release notes.
@@ -503,14 +503,14 @@ Keep it as a draft until the Play internal-track checks below pass.
    networking, and the release-critical scenarios.
 9. In **App bundle explorer**, select the uploaded version. If the account
    permits downloading the original AAB, download it and verify that its digest
-   matches `bitchat-android-play-upload.aab` in `BITCHAT_SHA256SUMS`.
+   matches `cirabit-android-play-upload.aab` in `CIRABIT_SHA256SUMS`.
 10. In **Setup > App integrity**, confirm the Play app-signing certificate
     SHA-256 is the value recorded in the GitHub release notes.
 
 For the initial Wear release, open **Test and release > Advanced settings >
 Form factors**, add Wear OS, upload the required Wear screenshot, and use the
 dedicated **Wear OS only** test track. Upload exactly
-`bitchat-android-wear-play-upload.aab`, confirm version code `1000000001`, and
+`cirabit-android-wear-play-upload.aab`, confirm version code `1000000001`, and
 complete the Wear OS opt-in and review flow. Promote the already-tested Wear
 artifact on its dedicated track; do not add it to the mobile track.
 
@@ -592,7 +592,7 @@ Also verify:
 - [ ] Checksums, source commit, and attestations verified
 - [ ] GitHub APKs signed locally with the pinned certificate
 - [ ] Phone and Wear Play AABs signed locally with the registered upload key
-- [ ] `BITCHAT_SHA256SUMS` verifies all 17 release assets
+- [ ] `CIRABIT_SHA256SUMS` verifies all 17 release assets
 - [ ] GitHub draft created with certificate fingerprints and all assets
 - [ ] Exact signed phone and Wear AABs uploaded to and tested on their tracks
 - [ ] GitHub Release published

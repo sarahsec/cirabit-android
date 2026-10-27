@@ -1,24 +1,24 @@
 [versions]
 # Android and Kotlin
-agp = "9.4.1"
-kotlin = "2.4.21"
+agp = "9.3.1"
+kotlin = "2.4.10"
 compileSdk = "37"
 minSdk = "26" # API 26 for proper BLE support
 targetSdk = "37"
 buildTools = "37.0.0"
 
 # AndroidX Core
-core-ktx = "1.19.1"
+core-ktx = "1.19.0"
 lifecycle-runtime = "2.11.0"
 activity-compose = "1.13.0"
-appcompat = "1.8.0"
+appcompat = "1.7.1"
 
 # Compose
-compose-bom = "2026.09.00"
+compose-bom = "2026.06.01"
 compose-icons-extended = "1.7.8"
 
 # Navigation
-navigation-compose = "2.10.2"
+navigation-compose = "2.9.8"
 
 # Accompanist
 accompanist-permissions = "0.37.3"
@@ -29,7 +29,7 @@ wear-tooling-preview = "1.0.0"
 wear-ongoing = "1.1.0"
 
 # Cryptography
-bouncycastle = "1.86"
+bouncycastle = "1.85"
 tink-android = "1.23.0"
 
 # JSON
@@ -42,7 +42,7 @@ kotlinx-coroutines = "1.11.0"
 nordic-ble = "2.11.0"
 
 # WebSocket
-okhttp = "5.5.0"
+okhttp = "5.4.0"
 tor-android-binary = "0.4.4.6"
 
 
@@ -56,7 +56,6 @@ work-runtime = "2.10.1"
 nanohttpd = "2.3.1"
 
 # Security
-biometric = "1.1.0"
 security-crypto = "1.1.0"
 
 # QR
@@ -72,12 +71,10 @@ mlkit-barcode = "17.3.0"
 # Testing
 junit = "4.13.2"
 androidx-test-ext = "1.3.0"
+androidx-test-runner = "1.5.0"
 espresso = "3.7.0"
-mockito-kotlin = "6.4.0"
+mockito-kotlin = "6.3.0"
 mockito-core = "5.23.0"
-kotlinx-coroutines-test = "1.11.0"
-
-lifecycle-process = "2.11.0"
 roboelectric = "4.15" # 4.16+ drops the AndroidKeyStore shim; breaks EncryptionServiceTest
 
 [libraries]
@@ -115,7 +112,6 @@ androidx-wear-ongoing = { module = "androidx.wear:wear-ongoing", version.ref = "
 # Cryptography
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 google-tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tink-android" }
-androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "security-crypto" }
 
 # JSON
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
@@ -143,7 +139,7 @@ androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version
 nanohttpd = { module = "org.nanohttpd:nanohttpd", version.ref = "nanohttpd" }
 
 # Security
-androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
+androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "security-crypto" }
 
 # QR
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing-core" }
@@ -160,6 +156,7 @@ mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version
 # Testing
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-ext" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }
 androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }

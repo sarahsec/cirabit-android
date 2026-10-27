@@ -173,7 +173,7 @@
     <string name="cd_open_map">Відкрити карту</string>
     <string name="cd_remove_bookmark">Прибрати закладку</string>
     <string name="cd_teleport">Телепортуватися</string>
-    <string name="notification_action_quit_bitchat">Закрити cirabit</string>
+    <string name="notification_action_quit_cirabit">Закрити cirabit</string>
     <string name="about_background_title">працювати у фоновому режимі</string>
     <string name="about_background_desc">підтримувати mesh активним, коли додаток закрито (фонова служба)</string>
     <string name="cd_leave_channel">Вийти з каналу</string>
@@ -181,7 +181,6 @@
     <string name="cd_offline_favorite">Офлайн обране</string>
     <string name="cd_decrease_precision">Зменшити точність</string>
     <string name="cd_increase_precision">Збільшити точність</string>
-    <string name="cd_select_geohash">Вибрати геохеш</string>
     <string name="cd_scroll_to_bottom">Прогорнути донизу</string>
     <string name="cd_file">Файл</string>
     <string name="cd_image">Зображення</string>
@@ -291,14 +290,14 @@
     <string name="open_location_settings">Відкрити налаштування геолокації</string>
     <string name="check_again">Перевірити знову</string>
     <string name="location_services_unavailable">Служби геолокації недоступні</string>
-    <string name="location_unavailable_explanation">Служби геолокації недоступні на цьому пристрої. Це незвично, оскільки служби геолокації є стандартними для пристроїв Android.\n\nbitchat потребує служб геолокації для коректної роботи сканування Bluetooth (вимога Android). Без цього додаток не може виявляти користувачів поруч.</string>
+    <string name="location_unavailable_explanation">Служби геолокації недоступні на цьому пристрої. Це незвично, оскільки служби геолокації є стандартними для пристроїв Android.\n\ncirabit потребує служб геолокації для коректної роботи сканування Bluetooth (вимога Android). Без цього додаток не може виявляти користувачів поруч.</string>
     <string name="checking_location_services">Перевірка служб геолокації...</string>
     <string name="bluetooth_required">Потрібен Bluetooth</string>
     <string name="bluetooth_needs_for">cirabit потребує Bluetooth для:</string>
     <string name="bluetooth_needs_bullets">• Виявлення користувачів поруч\n• Створення з’єднань mesh-мережі\n• Надсилання й отримання повідомлень\n• Роботи без інтернету чи серверів</string>
     <string name="enable_bluetooth">Увімкнути Bluetooth</string>
     <string name="bluetooth_not_supported">Bluetooth не підтримується</string>
-    <string name="bluetooth_unsupported_explanation">Цей пристрій не підтримує Bluetooth Low Energy (BLE), який потрібен для роботи cirabit.\n\nbitchat потребує BLE для створення mesh-мереж і зв’язку з пристроями поруч без інтернету.</string>
+    <string name="bluetooth_unsupported_explanation">Цей пристрій не підтримує Bluetooth Low Energy (BLE), який потрібен для роботи cirabit.\n\ncirabit потребує BLE для створення mesh-мереж і зв’язку з пристроями поруч без інтернету.</string>
     <string name="checking_bluetooth_status">Перевірка статусу Bluetooth...</string>
     <string name="battery_optimization_detected_title">виявлено оптимізацію батареї</string>
     <string name="battery_optimization_enabled_title">Оптимізацію батареї увімкнено</string>
@@ -325,8 +324,6 @@
     <string name="channel_count_prefix"> · ⧉ </string>
     <string name="nobody_around">нікого немає поруч...</string>
     <string name="you_suffix"> (ви)</string>
-    <string name="pan_zoom_instruction">панорамуйте та масштабуйте, щоб вибрати геохеш</string>
-    <string name="select">вибрати</string>
     <string name="type_a_message_placeholder">введіть повідомлення...</string>
     <string name="mention_suggestion_at">@%1$s</string>
     <string name="mention">згадка</string>
@@ -400,4 +397,16 @@
     <string name="about_app_language">Мова застосунку</string>
     <string name="about_system_default">Системна мова</string>
     <string name="about_select_language">Вибрати мову</string>
+    <string name="about_spam_filter_title">Спам-фільтр</string>
+    <string name="about_spam_filter_desc">Приховувати публічні повідомлення від тих, хто пише надто швидко, повторюється або надсилає забагато посилань.</string>
+    <string name="globe_live">наживо</string>
+    <string name="globe_connecting">підключення</string>
+    <string name="globe_offline">офлайн</string>
+    <string name="globe_hint_drag">обертати</string>
+    <string name="globe_hint_pinch">масштаб</string>
+    <string name="globe_hint_tap">торкніться точки</string>
+    <string name="globe_no_activity">немає нещодавньої активності</string>
+    <string name="cd_show_whole_globe">Показати весь глобус</string>
+    <string name="cd_globe_activity">Активних чатів: %1$d, людей онлайн: %2$d</string>
+    <string name="cd_channel_activity">Людей: %1$d, повідомлень за останню годину: %2$d</string>
 </resources>

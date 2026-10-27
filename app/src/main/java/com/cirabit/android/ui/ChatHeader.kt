@@ -49,7 +49,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.RowScope
 import com.cirabit.android.R
-import com.cirabit.android.core.ui.component.button.BitChatBrandButton
+import com.cirabit.android.core.ui.component.button.CirabitBrandButton
 import com.cirabit.android.core.ui.component.button.CloseButton
 import com.cirabit.android.net.ArtiTorManager
 import com.cirabit.android.net.TorMode
@@ -739,7 +739,7 @@ private fun MainHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Keep the brand and trailing actions fixed. Only the nickname yields under pressure.
-            BitChatBrandButton(
+            CirabitBrandButton(
                 onClick = onTitleClick,
                 onTripleClick = onTripleTitleClick,
                 contentDescription = stringResource(R.string.cd_open_about),

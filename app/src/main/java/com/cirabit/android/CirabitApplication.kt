@@ -2,7 +2,6 @@ package com.cirabit.android
 
 import android.app.Application
 import com.cirabit.android.nostr.RelayDirectory
-import com.cirabit.android.security.AppLockPreferenceManager
 import com.cirabit.android.ui.theme.ThemePreferenceManager
 import com.cirabit.android.net.ArtiTorManager
 
@@ -46,9 +45,11 @@ class CirabitApplication : Application() {
             com.cirabit.android.nostr.NostrIdentityBridge.getCurrentNostrIdentity(this)
         } catch (_: Exception) { }
 
+        // Restore the spam filter toggle before transports start admitting public messages
+        com.cirabit.android.spam.SpamFilterPreferences.init(this)
+
         // Initialize theme preference
         ThemePreferenceManager.init(this)
-        AppLockPreferenceManager.init(this)
 
         // Initialize chat UI mode (matrix transcript vs bubbles)
         com.cirabit.android.ui.theme.ChatUiModeManager.init(this)

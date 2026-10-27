@@ -9,8 +9,8 @@ OUTPUT_DIR="${1:-$PROJECT_ROOT/.reproducible-build/release}"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/TOOLCHAIN.env"
 
-if [ "${BITCHAT_SOURCE_TREE_VERIFIED:-0}" != "1" ] &&
-  [ "${BITCHAT_ALLOW_DIRTY:-0}" != "1" ] &&
+if [ "${CIRABIT_SOURCE_TREE_VERIFIED:-0}" != "1" ] &&
+  [ "${CIRABIT_ALLOW_DIRTY:-0}" != "1" ] &&
   [ -n "$(git -C "$PROJECT_ROOT" status --porcelain --untracked-files=normal)" ]; then
   echo "error: reproducible builds require a clean source tree" >&2
   exit 1
@@ -32,7 +32,7 @@ fi
 
 "$PROJECT_ROOT/tools/arti-build/verify-checksums.sh"
 
-export GRADLE_USER_HOME="${BITCHAT_GRADLE_USER_HOME:-$PROJECT_ROOT/.reproducible-build/gradle-home}"
+export GRADLE_USER_HOME="${CIRABIT_GRADLE_USER_HOME:-$PROJECT_ROOT/.reproducible-build/gradle-home}"
 export LC_ALL=C.UTF-8
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$PROJECT_ROOT" log -1 --format=%ct)}"
 export TZ=UTC
@@ -62,7 +62,7 @@ if [ ! -f "$aab_source" ]; then
   echo "error: expected phone release AAB not found" >&2
   exit 1
 fi
-cp "$aab_source" "$OUTPUT_DIR/bitchat-android-release-unsigned.aab"
+cp "$aab_source" "$OUTPUT_DIR/cirabit-android-release-unsigned.aab"
 
 ./gradlew "${gradle_args[@]}" :wear:clean :wear:bundleRelease
 
@@ -71,17 +71,17 @@ if [ ! -f "$wear_aab_source" ]; then
   echo "error: expected Wear release AAB not found" >&2
   exit 1
 fi
-cp "$wear_aab_source" "$OUTPUT_DIR/bitchat-android-wear-release-unsigned.aab"
+cp "$wear_aab_source" "$OUTPUT_DIR/cirabit-android-wear-release-unsigned.aab"
 
 # AGP cannot build split APKs and an app bundle from the same intermediates.
 ./gradlew "${gradle_args[@]}" :app:clean :app:assembleRelease
 
 declare -A apk_names=(
-  ["app-arm64-v8a-release-unsigned.apk"]="bitchat-android-arm64-unsigned.apk"
-  ["app-armeabi-v7a-release-unsigned.apk"]="bitchat-android-armv7-unsigned.apk"
-  ["app-universal-release-unsigned.apk"]="bitchat-android-universal-unsigned.apk"
-  ["app-x86-release-unsigned.apk"]="bitchat-android-x86-unsigned.apk"
-  ["app-x86_64-release-unsigned.apk"]="bitchat-android-x86_64-unsigned.apk"
+  ["app-arm64-v8a-release-unsigned.apk"]="cirabit-android-arm64-unsigned.apk"
+  ["app-armeabi-v7a-release-unsigned.apk"]="cirabit-android-armv7-unsigned.apk"
+  ["app-universal-release-unsigned.apk"]="cirabit-android-universal-unsigned.apk"
+  ["app-x86-release-unsigned.apk"]="cirabit-android-x86-unsigned.apk"
+  ["app-x86_64-release-unsigned.apk"]="cirabit-android-x86_64-unsigned.apk"
 )
 
 for source_name in "${!apk_names[@]}"; do
@@ -100,9 +100,9 @@ if [ ! -f "$wear_apk_source" ]; then
   echo "error: expected Wear release APK not found" >&2
   exit 1
 fi
-cp "$wear_apk_source" "$OUTPUT_DIR/bitchat-android-wear-unsigned.apk"
+cp "$wear_apk_source" "$OUTPUT_DIR/cirabit-android-wear-unsigned.apk"
 
-source_commit="${BITCHAT_SOURCE_COMMIT:-$(git -C "$PROJECT_ROOT" rev-parse HEAD)}"
+source_commit="${CIRABIT_SOURCE_COMMIT:-$(git -C "$PROJECT_ROOT" rev-parse HEAD)}"
 if ! [[ "$source_commit" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
   echo "error: source commit must be a full Git object ID" >&2
   exit 1
@@ -128,9 +128,9 @@ EOF
   cd "$OUTPUT_DIR"
   {
     sha256sum BUILDINFO.json
-    sha256sum bitchat-android-*-unsigned.apk
-    sha256sum bitchat-android-release-unsigned.aab
-    sha256sum bitchat-android-wear-release-unsigned.aab
+    sha256sum cirabit-android-*-unsigned.apk
+    sha256sum cirabit-android-release-unsigned.aab
+    sha256sum cirabit-android-wear-release-unsigned.aab
   } | sort -k2 > SHA256SUMS.unsigned
 )
 

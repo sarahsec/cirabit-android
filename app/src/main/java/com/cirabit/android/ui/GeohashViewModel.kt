@@ -26,9 +26,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.util.Date
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.Dispatchers
-import java.security.SecureRandom
-import kotlin.random.asKotlinRandom
 import java.util.UUID
 
 class GeohashViewModel(
@@ -39,12 +36,11 @@ class GeohashViewModel(
     private val notificationManager: NotificationManager
 ) : AndroidViewModel(application), DefaultLifecycleObserver {
 
-    companion object {
-        private const val TAG = "GeohashViewModel"
-        private val secureRandom = SecureRandom().asKotlinRandom()
-    }
+    companion object { private const val TAG = "GeohashViewModel" }
 
-    private val repo = GeohashRepository(application, state, dataManager)
+    private val repo = GeohashRepository(
+        application, state, dataManager, viewModelScope, NostrBackgroundRuntime.participants
+    )
     private val uiSubscriptionOwner = "geohash-ui-${UUID.randomUUID()}"
     private val subscriptionManager = NostrSubscriptionManager(
         application,
@@ -61,6 +57,7 @@ class GeohashViewModel(
     // Presence heartbeat firehose (kind 20001). High-volume; paused while backgrounded.
     private var currentGeohashPresenceSubId: String? = null
     private var geoTimer: Job? = null
+    private val participantUpdatesJob = repo.observeParticipants()
     private var locationChannelManager: com.cirabit.android.geohash.LocationChannelManager? = null
     private val activeSamplingGeohashes = mutableSetOf<String>()
     private val samplingSubscriptionIds = mutableMapOf<String, String>()
@@ -114,7 +111,8 @@ class GeohashViewModel(
         }
     }
 
-    fun panicReset() {
+    /** Returns true only when the persisted Nostr identity was wiped; the rest is in-memory teardown. */
+    fun panicReset(): Boolean {
         repo.clearAll()
         GeohashAliasRegistry.clear()
         GeohashConversationRegistry.clear()
@@ -123,10 +121,15 @@ class GeohashViewModel(
         activeChannelGeohash = null
         geoTimer?.cancel()
         geoTimer = null
-        try { NostrIdentityBridge.clearAllAssociations(getApplication()) } catch (_: Exception) {}
+        val identityCleared = try {
+            NostrIdentityBridge.clearAllAssociations(getApplication())
+        } catch (_: Exception) {
+            false
+        }
         NostrBackgroundRuntime.resetSubscriptions()
         try { com.cirabit.android.nostr.NostrRelayManager.getInstance(getApplication()).clearAllOnPanic() } catch (_: Exception) {}
         try { com.cirabit.android.nostr.LocationNotesManager.getInstance().stop() } catch (_: Exception) {}
+        return identityCleared
     }
 
     fun sendGeohashMessage(content: String, channel: com.cirabit.android.geohash.GeohashChannel, myPeerID: String, nickname: String?) {
@@ -281,16 +284,18 @@ class GeohashViewModel(
 
     fun getNostrKeyMapping(): Map<String, String> = repo.getNostrKeyMapping()
 
-    fun blockUserInGeohash(targetNickname: String) {
-        val pubkey = repo.findPubkeyByNickname(targetNickname)
+    fun blockUserInGeohash(targetNickname: String, pubkeyHex: String? = null) {
+        val pubkey = pubkeyHex?.takeIf { it.isNotBlank() }?.lowercase()
+            ?: repo.findPubkeyByNickname(targetNickname)
         if (pubkey != null) {
             dataManager.addGeohashBlockedUser(pubkey)
+            messageManager.removeGeohashMessagesFromSender(pubkey)
             // Refresh people list and counts to remove blocked entry immediately
             repo.refreshGeohashPeople()
             repo.updateReactiveParticipantCounts()
             val sysMsg = com.cirabit.android.model.CirabitMessage(
                 sender = "system",
-                content = "Blocked $targetNickname in geohash channels",
+                content = "blocked $targetNickname in geohash channels",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -298,7 +303,7 @@ class GeohashViewModel(
         } else {
             val sysMsg = com.cirabit.android.model.CirabitMessage(
                 sender = "system",
-                content = "User '$targetNickname' not found in current geohash",
+                content = "user '$targetNickname' not found in current geohash",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -428,6 +433,7 @@ class GeohashViewModel(
     fun shutdownUiSubscriptions() {
         if (uiSubscriptionsShutdown) return
         uiSubscriptionsShutdown = true
+        participantUpdatesJob.cancel()
         subscriptionManager.unsubscribeAllOwned()
         geoTimer?.cancel()
         geoTimer = null

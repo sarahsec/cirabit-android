@@ -121,7 +121,7 @@ Support for legacy >10 MiB compressed transfers is explicitly ended: legacy Andr
 still produce a highly compressible public file between 10 MiB and their 50 MiB UI limit that the
 bounded decoder rejects. Grandfathering 50 MiB is not safe after only a type check: inflation
 allocates the declared payload and
-`BitchatFilePacket.decode` currently copies the content again, creating a greater than 100 MiB peak
+`CirabitFilePacket.decode` currently copies the content again, creating a greater than 100 MiB peak
 for a maximum-size transfer.
 
 Before enabling that legacy range, receive processing needs an authenticated admission decision

@@ -240,7 +240,6 @@ class NostrDirectMessageHandler(
                     Log.w(TAG, "Failed to decode Nostr file transfer from $conversationID")
                 }
             }
-            NoisePayloadType.REACTION -> Unit // Reactions are currently mesh-only
             NoisePayloadType.VERIFY_CHALLENGE,
             NoisePayloadType.VERIFY_RESPONSE,
             NoisePayloadType.VOICE_FRAME,

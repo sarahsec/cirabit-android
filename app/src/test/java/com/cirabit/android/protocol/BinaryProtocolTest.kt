@@ -8,8 +8,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import com.cirabit.android.model.MessageReaction
-import com.cirabit.android.util.AppConstants
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -236,23 +234,6 @@ class BinaryProtocolTest {
             assertEquals("fromValue must resolve for ${msgType.name}",
                 msgType, MessageType.fromValue(decoded.type))
         }
-    }
-
-    @Test
-    fun `reaction payload codec round-trips correctly`() {
-        val original = MessageReaction(
-            messageID = "9F3A8D23A4A7490D",
-            emoji = "👍",
-            reactorPeerID = "1122334455667788",
-            isRemoval = false
-        )
-
-        val encoded = MessageReactionCodec.encode(original)
-        assertNotNull("Reaction payload must encode", encoded)
-
-        val decoded = MessageReactionCodec.decode(encoded!!)
-        assertNotNull("Reaction payload must decode", decoded)
-        assertEquals(original, decoded)
     }
 
     /**
@@ -1027,7 +1008,7 @@ class BinaryProtocolTest {
     @Test
     fun `v2 compression bomb is rejected`() {
         // Valid raw deflate final empty stored block (1 byte).
-        // Claim a huge original size to exceed the 50,000:1 ratio guard.
+        // Claim a huge original size to exceed DEFLATE's 1032:1 expansion bound.
         // ratio = 10,000,000 / 1 = 10,000,000:1
         val compressedData = byteArrayOf(0x03)
         val declaredOriginalSize = 10_000_000
@@ -1061,7 +1042,7 @@ class BinaryProtocolTest {
         val padded = MessagePadding.pad(raw, MessagePadding.optimalBlockSize(raw.size))
         val result = BinaryProtocol.decode(padded)
 
-        assertNull("v2 compression bomb (ratio > 50,000:1) must be rejected", result)
+        assertNull("v2 compression bomb (ratio > 1032:1) must be rejected", result)
     }
 
     @Test
@@ -1070,7 +1051,9 @@ class BinaryProtocolTest {
         val raw = compressedPacket(
             version = 2u,
             originalSize = max,
-            compressedData = ByteArray(256) { it.toByte() }
+            // Enough deflate bytes that the declared size stays within DEFLATE's 1032:1 bound.
+            compressedData = ByteArray(max / PacketPayloadLimits.MAX_DEFLATE_RATIO + 1) { it.toByte() },
+            type = MessageType.FILE_TRANSFER.value
         )
         var calls = 0
 
@@ -1090,7 +1073,8 @@ class BinaryProtocolTest {
         val raw = compressedPacket(
             version = 2u,
             originalSize = max + 1,
-            compressedData = ByteArray(256) { it.toByte() }
+            compressedData = ByteArray(max / PacketPayloadLimits.MAX_DEFLATE_RATIO + 1) { it.toByte() },
+            type = MessageType.FILE_TRANSFER.value
         )
         var calls = 0
 
@@ -1163,7 +1147,7 @@ class BinaryProtocolTest {
         val raw = compressedPacket(
             version = 1u,
             originalSize = originalSize,
-            compressedData = byteArrayOf(0x01, 0x02)
+            compressedData = ByteArray(64) { it.toByte() }
         )
         var calls = 0
 
@@ -1378,20 +1362,19 @@ class BinaryProtocolTest {
      *
      * Crafts a packet where the declared original size in the compressed
      * payload section is absurdly large relative to the compressed data,
-     * exceeding the 50,000:1 ratio guard in decodeCore(). Verifies the
+     * exceeding DEFLATE's 1032:1 expansion bound in decodeCore(). Verifies the
      * decoder returns null instead of attempting decompression.
      *
      * Without this check, an attacker could send a tiny packet claiming
      * to decompress into gigabytes, causing an OOM crash that kills the
-     * mesh service and disconnects all peers. The 50,000:1 threshold
-     * blocks this while still allowing legitimate compression ratios
-     * (typical text compresses ~3:1 to ~10:1).
+     * mesh service and disconnects all peers. No raw DEFLATE stream can
+     * expand past 1032:1, so the bound rejects only impossible declarations.
      */
     @Test
     fun `compression bomb is rejected`() {
         // Valid raw deflate final empty stored block (1 byte).
         // v1 uses a 2-byte (UShort) original-size field, so declared size
-        // must fit in 0..65535. ratio = 60,000 / 1 = 60,000:1 > 50,000:1
+        // must fit in 0..65535. ratio = 60,000 / 1 = 60,000:1 > 1032:1
         val tinyCompressed = byteArrayOf(0x03)
         val declaredOriginalSize = 60_000
 
@@ -1425,7 +1408,7 @@ class BinaryProtocolTest {
         val padded = MessagePadding.pad(raw, MessagePadding.optimalBlockSize(raw.size))
         val result = BinaryProtocol.decode(padded)
 
-        assertNull("Compression bomb (ratio > 50,000:1) must be rejected", result)
+        assertNull("Compression bomb (ratio > 1032:1) must be rejected", result)
     }
 
     /**
@@ -1539,55 +1522,6 @@ class BinaryProtocolTest {
         val result = BinaryProtocol.decode(padded)
 
         assertNull("v2 compressed with payloadLength < 4 must return null", result)
-    }
-
-    @Test
-    fun `v2 packet payload length above max is rejected`() {
-        val overLimitPayloadLength = AppConstants.Protocol.MAX_PAYLOAD_LENGTH + 1
-        val buffer = ByteBuffer.allocate(16 + 8).apply { order(ByteOrder.BIG_ENDIAN) }
-
-        buffer.put(2.toByte()) // version
-        buffer.put(MessageType.MESSAGE.value.toByte()) // type
-        buffer.put(5.toByte()) // ttl
-        buffer.putLong(fixedTimestamp.toLong()) // timestamp
-        buffer.put(0.toByte()) // flags
-        buffer.putInt(overLimitPayloadLength) // payload length
-        buffer.put(hexToBytes(senderHex)) // sender
-
-        val raw = ByteArray(buffer.position())
-        buffer.rewind()
-        buffer.get(raw)
-
-        val result = BinaryProtocol.decode(raw)
-
-        assertNull("payload above max must be rejected", result)
-    }
-
-    @Test
-    fun `v2 file transfer payload above generic max is accepted within media limit`() {
-        val payloadLength = AppConstants.Protocol.MAX_PAYLOAD_LENGTH + 1
-        val payload = ByteArray(payloadLength) { (it % 251).toByte() }
-        val buffer = ByteBuffer.allocate(16 + 8 + payloadLength).apply { order(ByteOrder.BIG_ENDIAN) }
-
-        buffer.put(2.toByte()) // version
-        buffer.put(MessageType.FILE_TRANSFER.value.toByte()) // type
-        buffer.put(5.toByte()) // ttl
-        buffer.putLong(fixedTimestamp.toLong()) // timestamp
-        buffer.put(0.toByte()) // flags
-        buffer.putInt(payloadLength) // payload length
-        buffer.put(hexToBytes(senderHex)) // sender
-        buffer.put(payload)
-
-        val raw = ByteArray(buffer.position())
-        buffer.rewind()
-        buffer.get(raw)
-
-        val decoded = BinaryProtocol.decode(raw)
-
-        assertNotNull("file transfer payload just above generic max should decode", decoded)
-        assertEquals("type should be file transfer", MessageType.FILE_TRANSFER.value, decoded!!.type)
-        assertEquals("payload length should match", payloadLength, decoded.payload.size)
-        assertTrue("payload bytes should match", payload.contentEquals(decoded.payload))
     }
 
     private fun hexToBytes(hex: String): ByteArray {

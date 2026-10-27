@@ -6,7 +6,7 @@
     android:viewportHeight="108">
     <!--
       Radar bubble: a chat bubble broadcasting to peers in range. Both rings
-      open toward the bubble's tail (bottom-right, like BitChatIcon). Everything
+      open toward the bubble's tail (bottom-right, like CirabitIcon). Everything
       stays inside the 66dp safe zone so Wear's circular mask never clips it.
     -->
     <path

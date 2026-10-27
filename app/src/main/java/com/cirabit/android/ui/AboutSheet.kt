@@ -1,9 +1,6 @@
 package com.cirabit.android.ui
 
-import android.content.Context
 import android.content.Intent
-import android.content.ContextWrapper
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -18,10 +15,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,7 +36,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -56,8 +52,6 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -70,10 +64,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
-import com.cirabit.android.nostr.NostrProofOfWork
-import com.cirabit.android.nostr.PoWPreferenceManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cirabit.android.ui.theme.CirabitFontFamily
@@ -86,63 +76,13 @@ import com.cirabit.android.hotspot.HotspotActivity
 import com.cirabit.android.net.ArtiTorManager
 import com.cirabit.android.net.TorMode
 import com.cirabit.android.net.TorPreferenceManager
-import com.cirabit.android.security.AppLockPreferenceManager
-import com.cirabit.android.update.AppUpdateCheckService
-import com.cirabit.android.update.AppUpdatePreferenceManager
+import com.cirabit.android.nostr.NostrProofOfWork
+import com.cirabit.android.nostr.PoWPreferenceManager
+import com.cirabit.android.spam.SpamFilterPreferences
 import com.cirabit.android.ui.theme.CirabitMotion
 import com.cirabit.android.ui.theme.LocalCirabitPalette
 import com.cirabit.android.util.ShareableApkVariant
 import com.cirabit.android.util.UniversalApkManager
-import kotlinx.coroutines.launch
-
-private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
-    is FragmentActivity -> this
-    is ContextWrapper -> baseContext.findFragmentActivity()
-    else -> null
-}
-
-/**
- * Feature row for displaying app capabilities
- */
-@Composable
-private fun FeatureRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String
-) {
-    val colorScheme = MaterialTheme.colorScheme
-    
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = colorScheme.primary,
-            modifier = Modifier
-                .padding(top = 2.dp)
-                .size(22.dp)
-        )
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = colorScheme.onSurface.copy(alpha = 0.6f),
-                lineHeight = 18.sp
-            )
-        }
-    }
-}
 
 /**
  * Theme selection chip with Apple-like styling
@@ -267,18 +207,9 @@ private fun SettingsToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
-    onContentClick: (() -> Unit)? = null,
     statusIndicator: (@Composable () -> Unit)? = null
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.red + colorScheme.background.green + colorScheme.background.blue < 1.5f
-
-    val contentClickModifier = if (enabled && onContentClick != null) {
-        Modifier.clickable(onClick = onContentClick)
-    } else {
-        Modifier
-    }
-
     val palette = LocalCirabitPalette.current
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -304,56 +235,48 @@ private fun SettingsToggleRow(
         modifier = Modifier
             .fillMaxWidth()
             // The whole row toggles, not just the switch: a 14.dp-tall switch is a poor target
-            // when there is a full-width row sitting right next to it. When the row has a
-            // dedicated content action (cirabit: onContentClick), the content area runs that
-            // instead and only the switch toggles.
+            // when there is a full-width row sitting right next to it.
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                enabled = enabled && onContentClick == null
+                enabled = enabled
             ) { onCheckedChange(!checked) }
             .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .then(contentClickModifier),
-            verticalAlignment = Alignment.CenterVertically
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(22.dp)
+        )
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(22.dp)
-            )
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = title,
-                        fontFamily = CirabitFontFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = titleColor
-                    )
-                    statusIndicator?.invoke()
-                }
                 Text(
-                    text = subtitle,
+                    text = title,
                     fontFamily = CirabitFontFamily,
-                    fontSize = 12.sp,
-                    color = subtitleColor,
-                    lineHeight = 17.sp
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = titleColor
                 )
+                statusIndicator?.invoke()
             }
+            Text(
+                text = subtitle,
+                fontFamily = CirabitFontFamily,
+                fontSize = 12.sp,
+                color = subtitleColor,
+                lineHeight = 17.sp
+            )
         }
 
         Spacer(modifier = Modifier.width(16.dp))
@@ -584,49 +507,10 @@ fun AboutSheet(
 
                     // Settings Section - Unified Card with Toggles
                     item(key = "settings") {
-                        val coroutineScope = rememberCoroutineScope()
-                        LaunchedEffect(Unit) {
-                            PoWPreferenceManager.init(context)
-                            AppLockPreferenceManager.init(context)
-                            AppUpdatePreferenceManager.init(context)
-                        }
-                        val appLockEnabled by AppLockPreferenceManager.appLockEnabled.collectAsState()
-                        val appLockStatus = AppLockPreferenceManager.authenticationStatus(context)
-                        val appLockAvailable = appLockStatus == BiometricManager.BIOMETRIC_SUCCESS
-                        val hostActivity = remember(context) { context.findFragmentActivity() }
-                        var appLockToggleInProgress by remember { mutableStateOf(false) }
-                        var pendingAppLockValue by remember { mutableStateOf<Boolean?>(null) }
-                        val appLockChangePrompt = remember(hostActivity, context) {
-                            hostActivity?.let { activity ->
-                                BiometricPrompt(
-                                    activity,
-                                    ContextCompat.getMainExecutor(activity),
-                                    object : BiometricPrompt.AuthenticationCallback() {
-                                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                                            super.onAuthenticationSucceeded(result)
-                                            pendingAppLockValue?.let { desiredValue ->
-                                                AppLockPreferenceManager.setEnabled(context, desiredValue)
-                                            }
-                                            pendingAppLockValue = null
-                                            appLockToggleInProgress = false
-                                        }
-
-                                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                                            super.onAuthenticationError(errorCode, errString)
-                                            pendingAppLockValue = null
-                                            appLockToggleInProgress = false
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        val appLockSubtitle = when (appLockStatus) {
-                            BiometricManager.BIOMETRIC_SUCCESS -> stringResource(R.string.about_app_lock_desc)
-                            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> stringResource(R.string.about_app_lock_setup_desc)
-                            else -> stringResource(R.string.about_app_lock_unavailable_desc)
-                        }
+                        LaunchedEffect(Unit) { PoWPreferenceManager.init(context) }
                         val powEnabled by PoWPreferenceManager.powEnabled.collectAsState()
                         val powDifficulty by PoWPreferenceManager.powDifficulty.collectAsState()
+                        val spamFilterEnabled by SpamFilterPreferences.enabled.collectAsState()
                         var backgroundEnabled by remember { mutableStateOf(com.cirabit.android.service.MeshServicePreferences.isBackgroundEnabled(true)) }
                         var liveVoiceEnabled by remember {
                             mutableStateOf(com.cirabit.android.features.voice.LiveVoicePreferences.isEnabled(context))
@@ -635,35 +519,6 @@ fun AboutSheet(
                         val torProvider = remember { ArtiTorManager.getInstance() }
                         val torStatus by torProvider.statusFlow.collectAsState()
                         val torAvailable = remember { torProvider.isTorAvailable() }
-                        val updateCheckEnabled by AppUpdatePreferenceManager.updateCheckEnabled.collectAsState()
-                        val updateCheckInfo by AppUpdatePreferenceManager.updateInfo.collectAsState()
-                        val isUpdateCheckRunning by AppUpdateCheckService.isChecking.collectAsState()
-                        val openLatestReleasePage: () -> Unit = {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(AppUpdateCheckService.DOWNLOAD_PAGE_URL))
-                                )
-                            }
-                        }
-
-                        val updateCheckSubtitle = when {
-                            !updateCheckEnabled -> stringResource(R.string.about_update_check_desc_disabled)
-                            isUpdateCheckRunning -> stringResource(R.string.about_update_check_desc_checking)
-                            updateCheckInfo.updateAvailable && !updateCheckInfo.latestVersion.isNullOrBlank() -> stringResource(
-                                R.string.about_update_check_desc_update_available,
-                                updateCheckInfo.latestVersion ?: ""
-                            )
-                            updateCheckInfo.updateAvailable -> stringResource(R.string.about_update_check_desc_update_available_generic)
-                            !updateCheckInfo.lastError.isNullOrBlank() -> stringResource(R.string.about_update_check_desc_error)
-                            updateCheckInfo.lastCheckedAtMs > 0L -> stringResource(R.string.about_update_check_desc_latest)
-                            else -> stringResource(R.string.about_update_check_desc_waiting)
-                        }
-
-                        LaunchedEffect(appLockAvailable, appLockEnabled) {
-                            if (!appLockAvailable && appLockEnabled) {
-                                AppLockPreferenceManager.setEnabled(context, false)
-                            }
-                        }
 
                         Column {
                             AboutSectionLabel(text = stringResource(R.string.about_section_settings))
@@ -698,70 +553,6 @@ fun AboutSheet(
                                         color = colorScheme.outlineVariant
                                     )
 
-                                    // Automatic Update Check Toggle
-                                    SettingsToggleRow(
-                                        icon = Icons.Filled.Download,
-                                        title = stringResource(R.string.about_update_check_title),
-                                        subtitle = updateCheckSubtitle,
-                                        checked = updateCheckEnabled,
-                                        onContentClick = openLatestReleasePage,
-                                        onCheckedChange = { enabled ->
-                                            AppUpdatePreferenceManager.setEnabled(context, enabled)
-                                            if (enabled) {
-                                                coroutineScope.launch {
-                                                    AppUpdateCheckService.checkForUpdatesIfNeeded(
-                                                        context = context,
-                                                        force = true
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    )
-
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(start = 56.dp),
-                                        color = colorScheme.outline.copy(alpha = 0.12f)
-                                    )
-
-                                    // App Lock Toggle
-                                    SettingsToggleRow(
-                                        icon = Icons.Filled.Lock,
-                                        title = stringResource(R.string.about_app_lock_title),
-                                        subtitle = appLockSubtitle,
-                                        checked = appLockEnabled,
-                                        onCheckedChange = { enabled ->
-                                            if (!appLockAvailable || appLockToggleInProgress) return@SettingsToggleRow
-
-                                            // Require device authentication to change app lock setting.
-                                            if (appLockChangePrompt == null) {
-                                                AppLockPreferenceManager.setEnabled(context, enabled)
-                                                return@SettingsToggleRow
-                                            }
-
-                                            pendingAppLockValue = enabled
-                                            appLockToggleInProgress = true
-                                            val subtitleRes = if (enabled) {
-                                                R.string.app_lock_change_prompt_enable_subtitle
-                                            } else {
-                                                R.string.app_lock_change_prompt_disable_subtitle
-                                            }
-                                            appLockChangePrompt.authenticate(
-                                                BiometricPrompt.PromptInfo.Builder()
-                                                    .setTitle(context.getString(R.string.app_lock_change_prompt_title))
-                                                    .setSubtitle(context.getString(subtitleRes))
-                                                    .setAllowedAuthenticators(AppLockPreferenceManager.promptAuthenticators())
-                                                    .build()
-                                            )
-                                        },
-                                        enabled = appLockAvailable && !appLockToggleInProgress
-                                    )
-
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(start = 56.dp),
-                                        color = colorScheme.outline.copy(alpha = 0.12f)
-                                    )
-                                    
-
                                     SettingsToggleRow(
                                         icon = Icons.Filled.Mic,
                                         title = "Live push-to-talk",
@@ -786,6 +577,21 @@ fun AboutSheet(
                                         subtitle = stringResource(R.string.about_pow_tip),
                                         checked = powEnabled,
                                         onCheckedChange = { PoWPreferenceManager.setPowEnabled(it) }
+                                    )
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 54.dp),
+                                        thickness = 1.dp,
+                                        color = colorScheme.outlineVariant
+                                    )
+
+                                    // Spam Filter Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.FilterAlt,
+                                        title = stringResource(R.string.about_spam_filter_title),
+                                        subtitle = stringResource(R.string.about_spam_filter_desc),
+                                        checked = spamFilterEnabled,
+                                        onCheckedChange = { SpamFilterPreferences.setEnabled(it) }
                                     )
 
                                     HorizontalDivider(

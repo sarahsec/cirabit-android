@@ -3,15 +3,11 @@ package com.cirabit.android.mesh
 import android.util.Log
 import com.cirabit.android.favorites.FavoriteControlMessage
 import com.cirabit.android.model.CirabitMessage
-import com.cirabit.android.model.IdentityAnnouncement
-import com.cirabit.android.model.MessageReaction
 import com.cirabit.android.model.CirabitMessageType
 import com.cirabit.android.model.AuthenticatedPeerState
 import com.cirabit.android.model.RoutedPacket
 import com.cirabit.android.protocol.CirabitPacket
 import com.cirabit.android.protocol.MessageType
-import com.cirabit.android.protocol.MessageReactionCodec
-import com.cirabit.android.sync.FileMessageIdUtil
 import com.cirabit.android.sync.PacketIdUtil
 import com.cirabit.android.util.toHexString
 import com.cirabit.android.features.voice.LiveVoiceManager
@@ -128,24 +124,14 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                 }
                 
                 com.cirabit.android.model.NoisePayloadType.FILE_TRANSFER -> {
-                    if (isOversizedIncomingFilePayload(peerID, noisePayload.data.size, "noise")) {
-                        return true
-                    }
-                    // Handle encrypted file transfer with deterministic message ID.
+                    // Handle encrypted file transfer; generate unique message ID
                     val file = com.cirabit.android.model.CirabitFilePacket.decode(noisePayload.data)
                     if (file != null) {
-                        if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "noise")) {
-                            return true
-                        }
-                        val stableMessageID = FileMessageIdUtil.computeIdHex(
-                            senderPeerID = peerID,
-                            timestampMs = packet.timestamp.toLong(),
-                            encodedFilePayload = noisePayload.data
-                        )
                         Log.d(TAG, "Encrypted file from $peerID: ${file.fileSize} bytes")
+                        val uniqueMsgId = java.util.UUID.randomUUID().toString().uppercase()
                         val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                         val message = CirabitMessage(
-                            id = stableMessageID,
+                            id = uniqueMsgId,
                             sender = delegate?.getPeerNickname(peerID) ?: "Unknown",
                             content = savedPath,
                             type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
@@ -156,13 +142,12 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                             senderPeerID = peerID
                         )
 
-                        Log.d(TAG, "📄 Saved encrypted incoming file to $savedPath (msgId=$stableMessageID)")
                         if (!LiveVoiceManager.getInstance(appContext).absorbFinalizedVoiceNote(message)) {
                             delegate?.onMessageReceived(message)
                         }
 
-                        // Send delivery ACK with deterministic message ID
-                        sendDeliveryAck(stableMessageID, peerID)
+                        // Send delivery ACK with generated message ID
+                        sendDeliveryAck(uniqueMsgId, peerID)
                     } else {
                         Log.w(TAG, "Failed to decode encrypted file transfer from $peerID")
                     }
@@ -207,21 +192,6 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
                     
                     // Simplified: Call delegate with messageID and peerID directly
                     delegate?.onReadReceiptReceived(messageID, peerID)
-                }
-                com.cirabit.android.model.NoisePayloadType.REACTION -> {
-                    val reaction = MessageReactionCodec.decode(noisePayload.data)
-                    if (reaction == null) {
-                        Log.w(TAG, "Failed to decode encrypted reaction from $peerID")
-                        return true
-                    }
-
-                    // Enforce sender identity from packet route information
-                    val sanitized = reaction.copy(reactorPeerID = peerID)
-                    delegate?.onMessageReactionReceived(
-                        reaction = sanitized,
-                        fromPeerID = peerID,
-                        timestampMs = packet.timestamp.toLong()
-                    )
                 }
                 com.cirabit.android.model.NoisePayloadType.VERIFY_CHALLENGE -> {
                     delegate?.onVerifyChallengeReceived(peerID, noisePayload.data, packet.timestamp.toLong())
@@ -456,42 +426,6 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
         // Message relay is now handled by centralized PacketRelayManager
     }
 
-    /**
-     * Handle public emoji reaction packet.
-     */
-    suspend fun handleMessageReaction(routed: RoutedPacket) {
-        val packet = routed.packet
-        val peerID = routed.peerID ?: "unknown"
-        if (peerID == myPeerID) return
-
-        val recipientID = packet.recipientID?.takeIf { !it.contentEquals(delegate?.getBroadcastRecipient()) }
-        if (recipientID != null && recipientID.toHexString() != myPeerID) {
-            return
-        }
-
-        if (recipientID == null) {
-            val peerInfo = delegate?.getPeerInfo(peerID)
-            if (peerInfo == null || !peerInfo.isVerifiedNickname) {
-                Log.w(TAG, "🚫 Dropping reaction from unverified or unknown peer ${peerID.take(8)}...")
-                return
-            }
-        }
-
-        val reaction = MessageReactionCodec.decode(packet.payload)
-        if (reaction == null) {
-            Log.w(TAG, "Failed to decode reaction payload from $peerID")
-            return
-        }
-
-        // Enforce sender identity from packet metadata.
-        val sanitized = reaction.copy(reactorPeerID = peerID)
-        delegate?.onMessageReactionReceived(
-            reaction = sanitized,
-            fromPeerID = peerID,
-            timestampMs = packet.timestamp.toLong()
-        )
-    }
-
     /** Validate and ingest an ephemeral public push-to-talk frame. */
     fun handlePublicVoiceFrame(routed: RoutedPacket): Boolean {
         val packet = routed.packet
@@ -519,7 +453,6 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
     private suspend fun handleBroadcastMessage(routed: RoutedPacket) {
         val packet = routed.packet
         val peerID = routed.peerID ?: "unknown"
-        val stableMessageID = PacketIdUtil.computeIdHex(packet)
         
         // Enforce: only accept public messages from verified peers we know
         val peerInfo = delegate?.getPeerInfo(peerID)
@@ -531,25 +464,12 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
         try {
             // Try file packet first (voice, image, etc.) and log outcome for FILE_TRANSFER
             val isFileTransfer = com.cirabit.android.protocol.MessageType.fromValue(packet.type) == com.cirabit.android.protocol.MessageType.FILE_TRANSFER
-            if (isFileTransfer && isOversizedIncomingFilePayload(peerID, packet.payload.size, "broadcast")) {
-                return
-            }
             val file = com.cirabit.android.model.CirabitFilePacket.decode(packet.payload)
             if (file != null) {
-                val stableFileMessageID = FileMessageIdUtil.computeIdHex(
-                    senderPeerID = peerID,
-                    timestampMs = packet.timestamp.toLong(),
-                    encodedFilePayload = packet.payload
-                )
-                if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "broadcast")) {
-                    return
-                }
-                if (isFileTransfer) {
-                    Log.d(TAG, "📥 FILE_TRANSFER decode success (broadcast): name='${file.fileName}', size=${file.fileSize}, mime='${file.mimeType}', from=${peerID.take(8)}")
-                }
+
                 val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                 val message = CirabitMessage(
-                    id = stableFileMessageID,
+                    id = PacketIdUtil.computeIdHex(packet).uppercase(),
                     sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                     content = savedPath,
                     type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
@@ -566,7 +486,7 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
 
             // Fallback: plain text
             val message = CirabitMessage(
-                id = stableMessageID,
+                id = PacketIdUtil.computeIdHex(packet).uppercase(),
                 sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                 content = String(packet.payload, Charsets.UTF_8),
                 senderPeerID = peerID,
@@ -583,7 +503,6 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
      */
     private suspend fun handlePrivateMessage(packet: CirabitPacket, peerID: String) {
         try {
-            val stableMessageID = PacketIdUtil.computeIdHex(packet)
             val isFileTransfer = com.cirabit.android.protocol.MessageType.fromValue(packet.type) ==
                 com.cirabit.android.protocol.MessageType.FILE_TRANSFER
             val signatureIsValid = packet.signature != null &&
@@ -604,25 +523,12 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
             }
 
             // Try file packet first (voice, image, etc.) and log outcome for FILE_TRANSFER
-            if (isFileTransfer && isOversizedIncomingFilePayload(peerID, packet.payload.size, "private")) {
-                return
-            }
             val file = com.cirabit.android.model.CirabitFilePacket.decode(packet.payload)
             if (file != null) {
-                val stableFileMessageID = FileMessageIdUtil.computeIdHex(
-                    senderPeerID = peerID,
-                    timestampMs = packet.timestamp.toLong(),
-                    encodedFilePayload = packet.payload
-                )
-                if (isOversizedIncomingFile(peerID, file.fileSize, file.content.size.toLong(), "private")) {
-                    return
-                }
-                if (isFileTransfer) {
-                    Log.d(TAG, "📥 FILE_TRANSFER decode success (private): name='${file.fileName}', size=${file.fileSize}, mime='${file.mimeType}', from=${peerID.take(8)}")
-                }
+
                 val savedPath = com.cirabit.android.features.file.FileUtils.saveIncomingFile(appContext, file)
                 val message = CirabitMessage(
-                    id = stableFileMessageID,
+                    id = java.util.UUID.randomUUID().toString().uppercase(),
                     sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                     content = savedPath,
                     type = com.cirabit.android.features.file.FileUtils.messageTypeForMime(file.mimeType),
@@ -642,7 +548,6 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
 
             // Fallback: plain text
             val message = CirabitMessage(
-                id = stableMessageID,
                 sender = delegate?.getPeerNickname(peerID) ?: "unknown",
                 content = String(packet.payload, Charsets.UTF_8),
                 senderPeerID = peerID,
@@ -774,38 +679,6 @@ class MessageHandler(private val myPeerID: String, private val appContext: andro
             // Best-effort; ignore errors
         }
     }
-
-    private fun isOversizedIncomingFilePayload(peerID: String, payloadSizeBytes: Int, channel: String): Boolean {
-        val limit = com.cirabit.android.util.AppConstants.Media.MAX_INCOMING_FILE_BYTES +
-                com.cirabit.android.util.AppConstants.Media.MAX_FILE_PACKET_OVERHEAD_BYTES
-        return if (payloadSizeBytes.toLong() > limit) {
-            Log.w(
-                TAG,
-                "🚫 Dropping oversized file payload ($channel) from ${peerID.take(8)}... payload=$payloadSizeBytes bytes limit=$limit"
-            )
-            true
-        } else {
-            false
-        }
-    }
-
-    private fun isOversizedIncomingFile(
-        peerID: String,
-        declaredFileSizeBytes: Long,
-        contentSizeBytes: Long,
-        channel: String
-    ): Boolean {
-        val limit = com.cirabit.android.util.AppConstants.Media.MAX_INCOMING_FILE_BYTES
-        return if (declaredFileSizeBytes > limit || contentSizeBytes > limit) {
-            Log.w(
-                TAG,
-                "🚫 Dropping oversized decoded file ($channel) from ${peerID.take(8)}... declared=$declaredFileSizeBytes content=$contentSizeBytes limit=$limit"
-            )
-            true
-        } else {
-            false
-        }
-    }
 }
 
 /**
@@ -860,7 +733,6 @@ interface MessageHandlerDelegate {
 
     // Callbacks
     fun onMessageReceived(message: CirabitMessage)
-    fun onMessageReactionReceived(reaction: MessageReaction, fromPeerID: String, timestampMs: Long) {}
     fun onChannelLeave(channel: String, fromPeer: String)
     fun onDeliveryAckReceived(messageID: String, peerID: String)
     fun onReadReceiptReceived(messageID: String, peerID: String)

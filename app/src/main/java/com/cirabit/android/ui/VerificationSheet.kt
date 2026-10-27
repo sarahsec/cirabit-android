@@ -131,7 +131,7 @@ fun VerificationSheet(
                 containerColor = Color.Transparent,
                 contentColor = accent,
                 indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
+                    TabRowDefaults.Indicator(
                         Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
                         color = accent
                     )
@@ -512,7 +512,7 @@ private fun bitmapFromMatrix(matrix: BitMatrix): Bitmap {
     return bitmap
 }
 
-private class QRCodeAnalyzer(
+internal class QRCodeAnalyzer(
     private val onCode: (String) -> Unit
 ) : ImageAnalysis.Analyzer {
     private val scanner = BarcodeScanning.getClient(

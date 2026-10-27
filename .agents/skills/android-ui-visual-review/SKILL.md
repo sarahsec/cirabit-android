@@ -171,7 +171,7 @@ Restore the original density/theme/locale after the matrix is complete.
 
 Prefer existing debug hooks. When they cannot express the visual state, add the
 smallest temporary command to
-`app/src/debug/java/com/bitchat/android/testhook/TestHookDriver.kt`.
+`app/src/debug/java/com/cirabit/android/testhook/TestHookDriver.kt`.
 
 The fixture must:
 

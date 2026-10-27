@@ -1,12 +1,12 @@
 ---
 name: android-readme-screenshot-studio
-description: Create or refresh polished, high-resolution screenshots of the Bitchat Android app for README and repository showcase use. Use this skill whenever a user asks for README screenshots, app-store-like repository images, a populated mesh-chat showcase, voice-note or media conversation captures, a geohash globe image, higher-resolution Android emulator captures, or a PR that adds or replaces documentation screenshots. It owns the complete workflow from latest-main isolation and deterministic synthetic fixtures through real app rendering, visual inspection, system-chrome cropping, README asset updates, clean builds, and an optional PR. Do not use it for before/after UI regression evidence, which belongs to android-ui-visual-review, or for physical mesh behavior, which belongs to mesh-lab.
+description: Create or refresh polished, high-resolution screenshots of the Cirabit Android app for README and repository showcase use. Use this skill whenever a user asks for README screenshots, app-store-like repository images, a populated mesh-chat showcase, voice-note or media conversation captures, a geohash globe image, higher-resolution Android emulator captures, or a PR that adds or replaces documentation screenshots. It owns the complete workflow from latest-main isolation and deterministic synthetic fixtures through real app rendering, visual inspection, system-chrome cropping, README asset updates, clean builds, and an optional PR. Do not use it for before/after UI regression evidence, which belongs to android-ui-visual-review, or for physical mesh behavior, which belongs to mesh-lab.
 compatibility: Requires git, gh, the Android SDK and emulator, adb, Java/Gradle, Python 3, and image inspection support. FFmpeg is useful for capture-only media preparation.
 ---
 
 # Android README Screenshot Studio
 
-Create repository screenshots from the real Bitchat Android UI, not from a
+Create repository screenshots from the real Cirabit Android UI, not from a
 drawn mockup. The result should look intentional enough for the top of the
 README while remaining reproducible, synthetic, and honest about what a static
 emulator capture proves.
@@ -103,7 +103,7 @@ hooks. If they cannot express the composition, add the smallest temporary
 command under:
 
 ```text
-app/src/debug/java/com/bitchat/android/testhook/
+app/src/debug/java/com/cirabit/android/testhook/
 ```
 
 The fixture should:
@@ -149,7 +149,7 @@ Inject a complete timeline in one operation and allow at least two seconds of
 quiet UI time after the fixture reports success. This avoids capturing entry
 animations, incomplete placement, or media that has not finished decoding.
 
-Crop only Android system chrome. Preserve Bitchat's app header, translucent
+Crop only Android system chrome. Preserve Cirabit's app header, translucent
 overlap, content, and composer. Derive the crop from the observed status and
 navigation insets; do not blindly reuse pixel offsets from a different profile.
 Because the app renders edge-to-edge, app controls may extend into the reported

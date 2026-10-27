@@ -2,7 +2,7 @@
 """ADB-driven mesh test orchestrator for two (or more) live devices.
 
 Drives the debug-only TestHookReceiver in the app
-(intent action: com.bitchat.droid.TEST_HOOK) to perform mesh operations:
+(intent action: com.cirabit.android.TEST_HOOK) to perform mesh operations:
 peer scanning, connect, Noise handshake, DMs, file transfer, broadcast,
 announce, and raw packet injection.
 
@@ -38,15 +38,15 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from tools.release_gate.android_lab import APPLICATION_ID, find_adb, run_adb
 
-TEST_HOOK_ACTION = "com.bitchat.droid.TEST_HOOK"
-TEST_HOOK_COMPONENT = f"{APPLICATION_ID}/com.bitchat.android.testhook.TestHookReceiver"
+TEST_HOOK_ACTION = "com.cirabit.android.TEST_HOOK"
+TEST_HOOK_COMPONENT = f"{APPLICATION_ID}/com.cirabit.android.testhook.TestHookReceiver"
 RESULTS_DIR = "cache/testhook/results"
 DEVICE_TMP_DIR = "/data/local/tmp/meshlab"
 APP_FIXTURE_DIR = f"/data/data/{APPLICATION_ID}/cache/fixtures"
 
-WATCH_APPLICATION_ID = "com.bitchat.watch"
-WATCH_TEST_HOOK_ACTION = "com.bitchat.watch.TEST_HOOK"
-WATCH_TEST_HOOK_COMPONENT = f"{WATCH_APPLICATION_ID}/com.bitchat.watch.testhook.WearTestHookReceiver"
+WATCH_APPLICATION_ID = "com.cirabit.watch"
+WATCH_TEST_HOOK_ACTION = "com.cirabit.watch.TEST_HOOK"
+WATCH_TEST_HOOK_COMPONENT = f"{WATCH_APPLICATION_ID}/com.cirabit.watch.testhook.WearTestHookReceiver"
 
 PERMISSIONS = [
     "android.permission.BLUETOOTH_SCAN",
@@ -87,7 +87,7 @@ class Device:
         hook_action: str = TEST_HOOK_ACTION,
         hook_component: str = TEST_HOOK_COMPONENT,
         permissions: list[str] = PERMISSIONS,
-        activity_component: str = f"{APPLICATION_ID}/com.bitchat.android.MainActivity",
+        activity_component: str = f"{APPLICATION_ID}/com.cirabit.android.MainActivity",
     ):
         self.serial = serial
         self.alias = alias
@@ -265,7 +265,7 @@ class Device:
 
 
 class WatchDevice(Device):
-    """Pixel Watch running the com.bitchat.watch debug build.
+    """Pixel Watch running the com.cirabit.watch debug build.
 
     Same test-hook protocol as the phone; different package/hook, a smaller permission
     set (Bluetooth + notifications only), and wake tweaks that skip phone-only keyguard
@@ -530,6 +530,30 @@ def scenario_broadcast(a: Device, b: Device) -> dict:
         recv_result, send_result = recv.result(), send.result()
     assert recv_result["from"] == id_a, recv_result
     return {"send": send_result, "recv": recv_result}
+
+
+def scenario_broadcast_spam(a: Device, b: Device) -> dict:
+    """Spam filter on B: two near-copies from A are shown, the third is hidden, and A's next
+    ordinary message is still shown. Needs B's spam filter on, default limits, bypass off."""
+    id_a = whoami(a)["peer_id"]
+    # A fresh 32-character body per run keeps earlier runs out of B's ten-minute repeat window.
+    token = uuid.uuid4().hex[:16]
+    copies = [f"{token}{token} copy {mark}" for mark in "ABC"]
+    control = f"control {token} with different words, still delivered"
+    expected = [True, True, False, True]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        recvs = [pool.submit(b.cmd, "msg_recv", 45_000, contains=text) for text in [*copies, control]]
+        time.sleep(2)
+        for text in [*copies, control]:
+            a.cmd_ok("broadcast_msg", 30_000, content=text)
+        results = [recv.result() for recv in recvs]
+    delivered = [result.get("status") == "ok" for result in results]
+    if delivered != expected:
+        raise MeshLabError(f"expected delivery {expected} for copies A-C and control, got {delivered}")
+    for result in results:
+        if result.get("status") == "ok":
+            assert result["from"] == id_a, result
+    return {"delivered": delivered}
 
 
 def _ptt_one_way(
@@ -869,6 +893,7 @@ SCENARIOS = {
     "dm": scenario_dm,
     "favorite_verification": scenario_favorite_verification,
     "broadcast": scenario_broadcast,
+    "broadcast_spam": scenario_broadcast_spam,
     "ptt_dm": scenario_ptt_dm,
     "ptt_broadcast": scenario_ptt_broadcast,
     # Broadcast transfers are receiver-capped at 256 fragments (~120 KB); only
@@ -899,6 +924,7 @@ WATCH_SCENARIOS = [
     "dm",
     "favorite_verification",
     "broadcast",
+    "broadcast_spam",
     "ptt_dm",
     "ptt_broadcast",
     "raw",

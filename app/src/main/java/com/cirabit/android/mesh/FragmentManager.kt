@@ -17,12 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
  * - Same reassembly logic and timeout handling
  * - Uses new FragmentPayload model for type safety
  */
-class FragmentManager(
-    private val maxIncomingBytes: Long = com.cirabit.android.util.AppConstants.Media.MAX_INCOMING_FILE_BYTES,
-    private val maxFragmentsPerId: Int = com.cirabit.android.util.AppConstants.Fragmentation.MAX_FRAGMENTS_PER_ID,
-    private val maxActiveFragmentSets: Int = com.cirabit.android.util.AppConstants.Fragmentation.MAX_ACTIVE_FRAGMENT_SETS,
-    private val maxGlobalBufferedBytes: Long = com.cirabit.android.util.AppConstants.Fragmentation.MAX_GLOBAL_FRAGMENT_TOTAL_BYTES
-) {
+class FragmentManager {
     
     companion object {
         private const val TAG = "FragmentManager"
@@ -37,17 +32,11 @@ class FragmentManager(
     private val incomingFragments = ConcurrentHashMap<String, MutableMap<Int, ByteArray>>()
     // iOS equivalent: fragmentMetadata: [String: (type: UInt8, total: Int, timestamp: Date)]
     private val fragmentMetadata = ConcurrentHashMap<String, Triple<UByte, Int, Long>>() // originalType, totalFragments, timestamp
-    // Tracks accumulated payload bytes per fragment set to guard against oversized reassembly.
-    private val incomingFragmentBytes = ConcurrentHashMap<String, Long>()
+    private val fragmentCumulativeSize = ConcurrentHashMap<String, Int>()
+
     private val fragmentStateLock = Any()
     private var globalBufferedBytes: Long = 0L
 
-    private val maxFragmentSetBytes: Long =
-        minOf(
-            maxIncomingBytes,
-            com.cirabit.android.util.AppConstants.Fragmentation.MAX_FRAGMENT_TOTAL_BYTES
-        )
-    
     // Delegate for callbacks
     var delegate: FragmentManagerDelegate? = null
     
@@ -198,76 +187,91 @@ class FragmentManager(
 
             // iOS: let fragmentID = packet.payload[0..<8].map { String(format: "%02x", $0) }.joined()
             val fragmentIDString = fragmentPayload.getFragmentIDString()
-            
-            Log.d(TAG, "Received fragment ${fragmentPayload.index}/${fragmentPayload.total} for fragmentID: $fragmentIDString, originalType: ${fragmentPayload.originalType}")
-            synchronized(fragmentStateLock) {
-                if (fragmentPayload.total > maxFragmentsPerId) {
-                    Log.w(
-                        TAG,
-                        "Rejecting fragment with excessive total count: ${fragmentPayload.total} > $maxFragmentsPerId"
-                    )
-                    return null
-                }
 
-                val existingMetadata = fragmentMetadata[fragmentIDString]
-                if (existingMetadata != null) {
-                    val (expectedType, expectedTotal, _) = existingMetadata
+            val maxFragments = com.cirabit.android.util.AppConstants.Fragmentation.MAX_FRAGMENTS_PER_ID
+            if (fragmentPayload.total > maxFragments) {
+                Log.w(TAG, "Rejecting fragment with excessive total count: ${fragmentPayload.total} > $maxFragments")
+                return null
+            }
+
+            synchronized(fragmentStateLock) {
+                fragmentMetadata[fragmentIDString]?.let { (expectedType, expectedTotal, _) ->
                     if (expectedTotal != fragmentPayload.total || expectedType != fragmentPayload.originalType) {
-                        Log.w(
-                            TAG,
-                            "Rejecting fragment for $fragmentIDString: inconsistent metadata " +
-                                "(expected type=$expectedType total=$expectedTotal, got type=${fragmentPayload.originalType} total=${fragmentPayload.total})"
-                        )
-                        removeFragmentSetLocked(fragmentIDString)
+                        // Reject the fragment, keep the stream. Fragment packets
+                        // are unauthenticated and both halves of the key are
+                        // attacker-choosable, so discarding the set here let one
+                        // crafted packet destroy a legitimate in-flight
+                        // reassembly. Nothing from a conflicting header is ever
+                        // stored, so keeping the set stays inside the same
+                        // memory bound; a stream that genuinely stalls is reaped
+                        // by the timeout sweep.
+                        Log.w(TAG, "Rejecting fragment for $fragmentIDString: inconsistent metadata")
                         return null
                     }
                 }
 
                 val isNewSet = !incomingFragments.containsKey(fragmentIDString)
                 if (isNewSet) {
-                    if (incomingFragments.size >= maxActiveFragmentSets) {
-                        Log.w(
-                            TAG,
-                            "Rejecting new fragment set $fragmentIDString: active fragment sets ${incomingFragments.size} >= $maxActiveFragmentSets"
-                        )
+                    val maxActive = com.cirabit.android.util.AppConstants.Fragmentation.MAX_ACTIVE_FRAGMENT_SETS
+                    if (incomingFragments.size >= maxActive) {
+                        Log.w(TAG, "Rejecting new fragment set $fragmentIDString: active fragment sets ${incomingFragments.size} >= $maxActive")
                         return null
                     }
+
                     incomingFragments[fragmentIDString] = mutableMapOf()
                     fragmentMetadata[fragmentIDString] = Triple(
                         fragmentPayload.originalType,
                         fragmentPayload.total,
                         System.currentTimeMillis()
                     )
-                    incomingFragmentBytes[fragmentIDString] = 0L
+                    fragmentCumulativeSize[fragmentIDString] = 0
                 }
 
                 val fragmentMap = incomingFragments[fragmentIDString]
-                val currentTotalBytes = incomingFragmentBytes[fragmentIDString]
-                if (fragmentMap == null || currentTotalBytes == null) {
-                    Log.w(TAG, "Dropping fragment set $fragmentIDString due to missing reassembly state")
+                if (fragmentMap == null) {
+                    Log.w(TAG, "Dropping fragment set $fragmentIDString due to missing fragment map")
                     removeFragmentSetLocked(fragmentIDString)
                     return null
                 }
 
-                val previousFragmentSize = fragmentMap[fragmentPayload.index]?.size?.toLong() ?: 0L
-                val proposedTotalBytes = currentTotalBytes - previousFragmentSize + fragmentPayload.data.size.toLong()
-                if (proposedTotalBytes > maxFragmentSetBytes) {
-                    Log.w(
-                        TAG,
-                        "Dropping oversized fragment set $fragmentIDString from ${packet.senderID.joinToString("") { "%02x".format(it) }.take(8)}..." +
-                            " total=$proposedTotalBytes limit=$maxFragmentSetBytes"
-                    )
+                val currentSize = fragmentCumulativeSize[fragmentIDString]
+                if (currentSize == null) {
+                    Log.w(TAG, "Dropping fragment set $fragmentIDString due to missing size tracker")
                     removeFragmentSetLocked(fragmentIDString)
                     return null
                 }
 
-                val globalDelta = fragmentPayload.data.size.toLong() - previousFragmentSize
-                val proposedGlobal = globalBufferedBytes + globalDelta
-                if (proposedGlobal > maxGlobalBufferedBytes) {
-                    Log.w(
-                        TAG,
-                        "Rejecting fragment for $fragmentIDString: global buffered bytes $proposedGlobal exceeds cap $maxGlobalBufferedBytes"
-                    )
+                val heldEntry = fragmentMap[fragmentPayload.index]
+                if (heldEntry != null && !heldEntry.contentEquals(fragmentPayload.data)) {
+                    // Duplicate delivery is normal in a mesh, but one index of a
+                    // stream must always carry the same bytes. Overwriting
+                    // last-wins let a crafted duplicate replace bytes already
+                    // received from the real sender. This protects indices
+                    // already held; an index still empty when the injected
+                    // fragment arrives is filled by whichever copy wins the
+                    // race, and nothing here can tell them apart.
+                    Log.w(TAG, "Rejecting fragment for $fragmentIDString: index ${fragmentPayload.index} already holds different bytes")
+                    return null
+                }
+                val oldEntrySize = heldEntry?.size ?: 0
+                val newSize = currentSize - oldEntrySize + fragmentPayload.data.size
+                val maxTotalBytes = com.cirabit.android.util.AppConstants.Fragmentation.MAX_FRAGMENT_TOTAL_BYTES
+                if (newSize > maxTotalBytes) {
+                    Log.w(TAG, "Rejecting fragment for $fragmentIDString: cumulative size $newSize exceeds cap $maxTotalBytes")
+                    // Only a set this fragment itself created has nothing worth
+                    // preserving. An oversized fragment must not be able to
+                    // destroy an assembly it did not start — same reasoning the
+                    // global-cap branch below already applies.
+                    if (isNewSet) {
+                        removeFragmentSetLocked(fragmentIDString)
+                    }
+                    return null
+                }
+
+                val delta = (fragmentPayload.data.size - oldEntrySize).toLong()
+                val maxGlobalBytes = com.cirabit.android.util.AppConstants.Fragmentation.MAX_GLOBAL_FRAGMENT_TOTAL_BYTES
+                if (globalBufferedBytes + delta > maxGlobalBytes) {
+                    Log.w(TAG, "Rejecting fragment for $fragmentIDString: global buffered bytes exceed cap $maxGlobalBytes")
                     if (isNewSet) {
                         removeFragmentSetLocked(fragmentIDString)
                     }
@@ -275,60 +279,29 @@ class FragmentManager(
                 }
 
                 fragmentMap[fragmentPayload.index] = fragmentPayload.data
-                incomingFragmentBytes[fragmentIDString] = proposedTotalBytes
-                globalBufferedBytes = proposedGlobal
+                fragmentCumulativeSize[fragmentIDString] = newSize
+                globalBufferedBytes += delta
 
                 val expectedTotal = fragmentMetadata[fragmentIDString]?.second ?: fragmentPayload.total
                 if (fragmentMap.size == expectedTotal) {
-                    Log.d(TAG, "All fragments received for $fragmentIDString, reassembling...")
-                    val expectedSize = incomingFragmentBytes[fragmentIDString] ?: fragmentMap.values.sumOf { it.size.toLong() }
-                    if (expectedSize > maxFragmentSetBytes || expectedSize > Int.MAX_VALUE.toLong()) {
-                        Log.w(
-                            TAG,
-                            "Dropping oversized reassembly for $fragmentIDString total=$expectedSize limit=$maxFragmentSetBytes"
-                        )
-                        removeFragmentSetLocked(fragmentIDString)
-                        return null
-                    }
-
-                    val reassembledData = ByteArray(expectedSize.toInt())
-                    var writeOffset = 0
+                    // iOS reassembly logic: for i in 0..<total { if let fragment = fragments[i] { reassembled.append(fragment) } }
+                    val reassembledData = mutableListOf<Byte>()
                     for (i in 0 until expectedTotal) {
-                        val data = fragmentMap[i]
-                        if (data == null) {
-                            Log.w(TAG, "Missing fragment index $i for $fragmentIDString during reassembly")
-                            removeFragmentSetLocked(fragmentIDString)
-                            return null
+                        fragmentMap[i]?.let { data ->
+                            reassembledData.addAll(data.asIterable())
                         }
-                        if (writeOffset + data.size > reassembledData.size) {
-                            Log.w(TAG, "Fragment overflow while reassembling $fragmentIDString")
-                            removeFragmentSetLocked(fragmentIDString)
-                            return null
-                        }
-                        System.arraycopy(data, 0, reassembledData, writeOffset, data.size)
-                        writeOffset += data.size
                     }
-                    val completeData = if (writeOffset == reassembledData.size) reassembledData else reassembledData.copyOf(writeOffset)
 
-                    // Decode the original packet bytes we reassembled, so flags/compression are preserved - iOS fix
-                    val originalPacket = CirabitPacket.fromBinaryData(completeData)
+                    val originalPacket = CirabitPacket.fromBinaryData(reassembledData.toByteArray())
                     if (originalPacket != null) {
                         removeFragmentSetLocked(fragmentIDString)
 
-                        // Suppress re-broadcast of the reassembled packet by zeroing TTL.
-                        // We already relayed the incoming fragments; setting TTL=0 ensures
-                        // PacketRelayManager will skip relaying this reconstructed packet.
                         val suppressedTtlPacket = originalPacket.copy(ttl = 0u.toUByte())
-                        Log.d(TAG, "Successfully reassembled original (${completeData.size} bytes); set TTL=0 to suppress relay")
                         return suppressedTtlPacket
+                    } else {
+                        val metadata = fragmentMetadata[fragmentIDString]
+                        Log.e(TAG, "Failed to decode reassembled packet (type=${metadata?.first}, total=${metadata?.second})")
                     }
-
-                    val metadata = fragmentMetadata[fragmentIDString]
-                    Log.e(TAG, "Failed to decode reassembled packet (type=${metadata?.first}, total=${metadata?.second})")
-                    removeFragmentSetLocked(fragmentIDString)
-                } else {
-                    val received = fragmentMap.size
-                    Log.d(TAG, "Fragment ${fragmentPayload.index} stored, have $received/${fragmentPayload.total} fragments for $fragmentIDString")
                 }
             }
             
@@ -339,6 +312,15 @@ class FragmentManager(
         return null
     }
 
+    private fun removeFragmentSetLocked(fragmentIDString: String) {
+        incomingFragments.remove(fragmentIDString)
+        fragmentMetadata.remove(fragmentIDString)
+        val bytes = fragmentCumulativeSize.remove(fragmentIDString)?.toLong() ?: 0L
+        if (bytes != 0L) {
+            globalBufferedBytes = (globalBufferedBytes - bytes).coerceAtLeast(0L)
+        }
+    }
+    
     /**
      * Helper function to match iOS stride functionality
      * stride(from: 0, to: fullData.count, by: maxFragmentSize)
@@ -351,15 +333,6 @@ class FragmentManager(
             current += by
         }
         return result
-    }
-
-    private fun removeFragmentSetLocked(fragmentIDString: String) {
-        incomingFragments.remove(fragmentIDString)
-        fragmentMetadata.remove(fragmentIDString)
-        val bytes = incomingFragmentBytes.remove(fragmentIDString) ?: 0L
-        if (bytes > 0L) {
-            globalBufferedBytes = (globalBufferedBytes - bytes).coerceAtLeast(0L)
-        }
     }
     
     /**
@@ -374,13 +347,8 @@ class FragmentManager(
             // iOS: let oldFragments = fragmentMetadata.filter { $0.value.timestamp < cutoff }.map { $0.key }
             val oldFragments = fragmentMetadata.filter { it.value.third < cutoff }.map { it.key }
 
-            // iOS: for fragmentID in oldFragments { incomingFragments.removeValue(forKey: fragmentID) }
             for (fragmentID in oldFragments) {
                 removeFragmentSetLocked(fragmentID)
-            }
-
-            if (oldFragments.isNotEmpty()) {
-                Log.d(TAG, "Cleaned up ${oldFragments.size} old fragment sets (iOS compatible)")
             }
         }
     }
@@ -393,15 +361,16 @@ class FragmentManager(
             return buildString {
                 appendLine("=== Fragment Manager Debug Info (iOS Compatible) ===")
                 appendLine("Active Fragment Sets: ${incomingFragments.size}")
-                appendLine("Global Buffered Bytes: $globalBufferedBytes")
                 appendLine("Fragment Size Threshold: $FRAGMENT_SIZE_THRESHOLD bytes")
                 appendLine("Max Fragment Size: $MAX_FRAGMENT_SIZE bytes")
+                appendLine("Global Buffered Bytes: $globalBufferedBytes")
 
                 fragmentMetadata.forEach { (fragmentID, metadata) ->
                     val (originalType, totalFragments, timestamp) = metadata
                     val received = incomingFragments[fragmentID]?.size ?: 0
                     val ageSeconds = (System.currentTimeMillis() - timestamp) / 1000
-                    appendLine("  - $fragmentID: $received/$totalFragments fragments, type: $originalType, age: ${ageSeconds}s")
+                    val bytes = fragmentCumulativeSize[fragmentID] ?: 0
+                    appendLine("  - $fragmentID: $received/$totalFragments fragments, bytes=$bytes, type: $originalType, age: ${ageSeconds}s")
                 }
             }
         }
@@ -426,7 +395,7 @@ class FragmentManager(
         synchronized(fragmentStateLock) {
             incomingFragments.clear()
             fragmentMetadata.clear()
-            incomingFragmentBytes.clear()
+            fragmentCumulativeSize.clear()
             globalBufferedBytes = 0L
         }
     }

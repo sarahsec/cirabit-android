@@ -1,4 +1,4 @@
-# Bitchat for Pixel Watch — Implementation Plan
+# Cirabit for Pixel Watch — Implementation Plan
 
 > **Status tracker**: each milestone carries a status (`pending` / `in-progress` / `done`) and a
 > checklist. A milestone may only be started when the previous milestone's success criteria pass.
@@ -19,12 +19,12 @@
 
 ## 1. Context for a fresh coding agent
 
-- **Reference app**: this repository (`bitchat-android`) is a fully working, decentralized BLE mesh
-  chat client. Single Gradle module `:app`, root package `com.bitchat.android`, applicationId
-  `com.bitchat.droid`. See `AGENTS.md` for the full architecture overview.
-- **Goal**: a new `:wear` Gradle module (applicationId `com.bitchat.watch`) — a standalone Wear OS
+- **Reference app**: this repository (`cirabit-android`) is a fully working, decentralized BLE mesh
+  chat client. Single Gradle module `:app`, root package `com.cirabit.android`, applicationId
+  `com.cirabit.android`. See `AGENTS.md` for the full architecture overview.
+- **Goal**: a new `:wear` Gradle module (applicationId `com.cirabit.watch`) — a standalone Wear OS
   app for the Pixel Watch. **Bluetooth mesh only**: global chat, Noise-encrypted direct messages,
-  and receiving/displaying files & images. It must be a fully interoperable bitchat client: scan,
+  and receiving/displaying files & images. It must be a fully interoperable cirabit client: scan,
   advertise, connect, relay, handshake, and exchange messages with the Android (and iOS) apps.
 - **Explicitly out of scope**: no internet features (no Nostr, no Tor/Arti, no relays), no GPS /
   geohash / location channels, no Wi-Fi Aware, no hotspot/APK sharing, no voice notes recording.
@@ -39,7 +39,7 @@
 
 Wear OS is Android. `android.util.Log`, `android.bluetooth.*`, `EncryptedSharedPreferences`
 (androidx.security), BouncyCastle, and coroutines all work on the watch, so the vast majority of
-the bitchat protocol stack compiles unmodified.
+the cirabit protocol stack compiles unmodified.
 
 In `wear/build.gradle.kts`:
 
@@ -51,7 +51,7 @@ sourceSets["main"].java.srcDir("../app/src/main/java") // with include filters (
 `wear/build.gradle.kts` with comments):
 
 - `protocol/**` — wire format, `BinaryProtocol`, `CompressionUtil`, `MessagePadding`
-- `model/**` — `BitchatMessage`, `BitchatFilePacket`, `FragmentPayload`, `NoiseEncrypted`,
+- `model/**` — `CirabitMessage`, `CirabitFilePacket`, `FragmentPayload`, `NoiseEncrypted`,
   `IdentityAnnouncement`, `RoutedPacket`
 - `noise/**` — `NoiseSession`, `NoiseSessionManager`, `NoiseEncryptionService`,
   `NoiseChannelEncryption`, vendored pure-Java `noise/southernstorm/**`
@@ -68,7 +68,7 @@ sourceSets["main"].java.srcDir("../app/src/main/java") // with include filters (
 
 **Exclude**: `ui/**` (except forced single-file includes), `onboarding/**`, `nostr/**`, `net/**`,
 `geohash/**`, `wifi-aware/**`, `hotspot/**`, `features/voice/**`, `service/MeshForegroundService.kt`
-(wear gets its own service), `BitchatApplication.kt`, `MainActivity.kt`.
+(wear gets its own service), `CirabitApplication.kt`, `MainActivity.kt`.
 
 **Tests**: the app's own unit tests for shared packages (`protocol`, `noise`, `crypto`, `mesh`)
 are wired into the `:wear` test source set the same way (srcDir + includes), so shared behavior is
@@ -86,7 +86,7 @@ Wear Compose Material3 (round-screen safe by default):
   DM conversation. Edge-swipe back, `TimeText` scaffold, rotary crown scrolling.
 - **Visual identity** (mirrors `ui/theme/` exactly): black background `#000000`, green primary
   `#32D74B`, error `#FF453A`, orange accent for self/mentions, djb2-hash stable peer colors
-  (`PeerColors.kt` algorithm), Geist Mono typography, `BitchatMotion` timing tokens
+  (`PeerColors.kt` algorithm), Geist Mono typography, `CirabitMotion` timing tokens
   (120/180/240 ms) for all animations.
 - **Input**: text field using the Pixel Watch Gboard IME, plus voice dictation via
   `RecognizerIntent`. Haptic feedback on incoming messages.
@@ -97,7 +97,7 @@ Wear Compose Material3 (round-screen safe by default):
 
 - Pixel Watch connected via ADB (target device for all milestones; screencaps via
   `adb exec-out screencap`).
-- Two phones running the Android bitchat app, also on ADB, for interop testing (used heavily from
+- Two phones running the Android cirabit app, also on ADB, for interop testing (used heavily from
   M6; manual interop checks from M2 onward).
 - Design verification: at every UI milestone, take ADB screencaps of every screen and review them
   for round-screen clipping, element visibility, contrast, and touch-target size. A milestone does
@@ -132,7 +132,7 @@ Wear Compose Material3 (round-screen safe by default):
 **Success criteria**: `./gradlew :wear:assembleDebug` green; app launches on the watch;
 `git diff --name-only` shows no changes under `app/src/`.
 **Result**: PASSED — installed on Pixel Watch 3 (serial 4C201JEAYW0020), launch screencap shows
-"bitchat" wordmark (green `#32D74B`, Geist Mono, black background) correctly centered on the
+"cirabit" wordmark (green `#32D74B`, Geist Mono, black background) correctly centered on the
 round display. No `app/src/` changes.
 
 ---
@@ -151,8 +151,8 @@ filtered mirror of `app/src/main/java` into `wear/build/sharedSrc` which is adde
 root. App sources remain the single source of truth; nothing is hand-copied. Excluded:
 `BluetoothMeshService`/`UnifiedMeshService` (phone monolith / Wi-Fi Aware multiplexer — the watch
 composes its own service in M2). Two tiny wear-owned shims satisfy the only unresolvable
-references from shared code: `com.bitchat.android.service.MeshServiceHolder` (BLE-toggle
-interface, null) and `com.bitchat.android.wifiaware.WifiAwareController` (no-op).
+references from shared code: `com.cirabit.android.service.MeshServiceHolder` (BLE-toggle
+interface, null) and `com.cirabit.android.wifiaware.WifiAwareController` (no-op).
 
 **Success criteria**: the entire shared stack (protocol, noise, crypto, identity, mesh, model,
 AppStateStore) compiles into `:wear`; both modules' unit tests pass; `app/src/` untouched.
@@ -170,7 +170,7 @@ AppStateStore) compiles into `:wear`; both modules' unit tests pass; `app/src/` 
 - [ ] Internal debug screen: discovered peers with RSSI (temporary, replaced by real UI in M3/M4)
 - [ ] Manual interop check: watch and one phone mutually discover
 
-**Success criteria**: the phone's bitchat app lists the watch as a connected peer and vice versa
+**Success criteria**: the phone's cirabit app lists the watch as a connected peer and vice versa
 (logcat + screencap evidence); mesh survives the screen turning off (ambient mode) for 5 minutes.
 **Result**: PASSED — phone↔watch mutual discovery via `mesh_lab.py setup`; 5-minute screen-off
 ambient test: `WearMeshForegroundService` kept the process alive, the GATT link stayed up
@@ -187,8 +187,8 @@ learning the direct address↔peerID mapping via `DirectLinkAnnouncementPolicy.o
 ### M3 — Global chat
 
 - [ ] Nickname onboarding; identity announcement over the mesh
-- [ ] Send/receive/relay public `BitchatMessage`s (relay/TTL comes free from shared mesh code)
-- [ ] Chat timeline UI (`ScalingLazyColumn`, message bubbles per bitchat style, peer colors,
+- [ ] Send/receive/relay public `CirabitMessage`s (relay/TTL comes free from shared mesh code)
+- [ ] Chat timeline UI (`ScalingLazyColumn`, message bubbles per cirabit style, peer colors,
   timestamps) + composer (IME + `RecognizerIntent` dictation) + incoming-message haptics
 - [ ] Design check: ADB screencaps of onboarding, chat (empty/populated), composer; review for
   round-screen clipping/visibility/contrast
@@ -233,7 +233,7 @@ auto-initiates the handshake. Session recovery after watch force-stop verified b
 
 **Files & images (receive + display)**
 
-- [x] Receive broadcast + Noise-encrypted private files (shared `BitchatFilePacket` TLV,
+- [x] Receive broadcast + Noise-encrypted private files (shared `CirabitFilePacket` TLV,
   `FileUtils.saveIncomingFile`, `messageTypeForMime` — already wired via shared `MessageHandler`)
 - [x] Image messages render as compact inline thumbnails (rounded, fit-width); tap → full-screen
   viewer (black surface, fit-to-screen, dismiss) — mirrors the phone's `ImageMessageItem` /
@@ -248,10 +248,10 @@ auto-initiates the handshake. Session recovery after watch force-stop verified b
 - [x] Push-to-talk recording: press-and-hold starts recording, release sends (10 s cap, 600 ms
   minimum, ~80 ms amplitude polls); full-screen overlay that fades in with a live waveform
   animation + elapsed time; shared `VoiceRecorder` (16 kHz mono AAC, `audio/mp4`, `.m4a`)
-- [x] Send as `BitchatFilePacket` broadcast in global chat (`MeshCore.sendFileBroadcast`); in a
+- [x] Send as `CirabitFilePacket` broadcast in global chat (`MeshCore.sendFileBroadcast`); in a
   DM thread send Noise-encrypted (`WearMeshService.sendFilePrivateEncrypted` with
   handshake/prep retry, mirroring the phone's `dispatchFileSend`)
-- [x] Received voice notes (`BitchatMessageType.Audio`, `content` = local path) render as a
+- [x] Received voice notes (`CirabitMessageType.Audio`, `content` = local path) render as a
   voice-note bubble: play/pause + waveform (shared `Waveform.kt` extractor, 120 bins) +
   duration; `MediaPlayer` playback
 
@@ -289,7 +289,7 @@ auto-initiates the handshake. Session recovery after watch force-stop verified b
 - [x] Wear debug-only `TestHookReceiver` (`wear/src/debug/`) mirroring the phone's command set:
   `ping`, `start`, `stop`, `whoami`, `set_nickname`, `scan`, `peers`, `connect`, `handshake`,
   `session`, `announce`, `broadcast_msg`, `dm_send`, `dm_recv`, `msg_recv`, `raw_send`, `state`,
-  `clear_results` — broadcast action `com.bitchat.watch.TEST_HOOK`, same JSON-result-file protocol
+  `clear_results` — broadcast action `com.cirabit.watch.TEST_HOOK`, same JSON-result-file protocol
   (`file_*` excluded while M5 is deferred)
 - [x] Extend `tools/release_gate/mesh_lab.py`: `--serial-watch` argument and phone↔watch scenarios
   (`dm`, `broadcast`, `raw`, `session_recovery`, `identity_reset`, `all`), reusing
@@ -301,7 +301,7 @@ auto-initiates the handshake. Session recovery after watch force-stop verified b
 exits 0 with evidence files; no manual intervention.
 **Result**: PASSED — `scenario all` (dm, broadcast, raw, session_recovery, identity_reset)
 green in 73 s, evidence in `/tmp/meshlab-evidence/all-evidence.json`. Host-side robustness fixes
-in `mesh_lab.py`: `WatchDevice` (package/hook/permissions/activity for `com.bitchat.watch`),
+in `mesh_lab.py`: `WatchDevice` (package/hook/permissions/activity for `com.cirabit.watch`),
 `launch()` now verifies top-resumed activity (a frozen background process silently hangs test-hook
 commands — observed on Wear), `wake()` sets `stay_on_while_plugged_in` (otherwise the charging
 screen takes foreground and the app gets frozen), `ensure_direct_link` retries while announcing
@@ -313,7 +313,7 @@ the command if `run_adb` raises `GateError`.
 
 ### M7 — Polish & final design pass
 
-- [x] Animations/transitions per `BitchatMotion` tokens; message-appear animations; screen
+- [x] Animations/transitions per `CirabitMotion` tokens; message-appear animations; screen
   transitions; auto-scroll to newest; splash screen (black, on-brand) & app icon
 - [x] Power/battery: ambient test passed (see M2 result); shared `PowerManager` duty-cycling
   active; composer/IME insets verified. Rotary crown scrolling is provided by
@@ -345,7 +345,7 @@ pattern lock; mesh_lab sets `stay_on_while_plugged_in` etc. automatically.
 
 # Install & launch on the watch
 adb -s <watch-serial> install -r -g wear/build/outputs/apk/debug/wear-debug.apk
-adb -s <watch-serial> shell monkey -p com.bitchat.watch -c android.intent.category.LAUNCHER 1
+adb -s <watch-serial> shell monkey -p com.cirabit.watch -c android.intent.category.LAUNCHER 1
 
 # Screencap (design checks)
 adb -s <watch-serial> exec-out screencap -p > watch.png
@@ -359,9 +359,9 @@ python3 tools/release_gate/mesh_lab.py scenario all \
   --serial-a <phone-serial> --serial-watch <watch-serial> --out /tmp/meshlab-evidence
 
 # Ad-hoc test-hook commands (watch)
-adb -s <watch-serial> shell am broadcast -a com.bitchat.watch.TEST_HOOK \
-  -n com.bitchat.watch/.testhook.WearTestHookReceiver --es cmd state --es id s1
-adb -s <watch-serial> shell run-as com.bitchat.watch cat cache/testhook/results/s1.json
+adb -s <watch-serial> shell am broadcast -a com.cirabit.watch.TEST_HOOK \
+  -n com.cirabit.watch/.testhook.WearTestHookReceiver --es cmd state --es id s1
+adb -s <watch-serial> shell run-as com.cirabit.watch cat cache/testhook/results/s1.json
 ```
 
 Notes:

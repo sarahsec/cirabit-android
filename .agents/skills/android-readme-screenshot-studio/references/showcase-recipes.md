@@ -139,7 +139,7 @@ header instead of being grouped away.
 ### Photo framing
 
 A portrait or tall crop can let the latest rows stay visible while the older
-photo slides partially behind Bitchat's translucent header. This is visually
+photo slides partially behind Cirabit's translucent header. This is visually
 useful only when the photo subject remains legible.
 
 - Preserve the app's own rounded image treatment.
@@ -157,7 +157,7 @@ Locally available offline TTS plus an audio transcoder is sufficient. Use the
 same audio format the app normally records or plays, such as M4A.
 
 After copying the files into an app-readable location, create
-`BitchatMessageType.Audio` messages that point to those actual files. Let
+`CirabitMessageType.Audio` messages that point to those actual files. Let
 `AudioWaveformExtractor` and `VoiceWaveformCache` produce the bars.
 
 Reject the capture when:
@@ -223,7 +223,7 @@ Capture the full physical screen first. Determine the status-bar and
 navigation-bar insets from the current profile, then crop those insets only.
 
 Treat the navigation inset as an inspection region, not an automatic crop
-amount. Bitchat uses edge-to-edge layout, so the composer's border, globe-button
+amount. Cirabit uses edge-to-edge layout, so the composer's border, globe-button
 corners, or their shadows may occupy part of that region. Use accessibility
 bounds plus full-size pixel inspection to place the crop below every app
 control and above the system gesture affordance.

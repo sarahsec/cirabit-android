@@ -692,10 +692,3 @@ class LocationChannelManager private constructor(private val context: Context) {
         try { context.unregisterReceiver(locationStateReceiver) } catch (_: Exception) {}
     }
 }
-
-internal fun selectedChannelLogMessage(channel: ChannelID): String {
-    return when (channel) {
-        is ChannelID.Mesh -> "Selected channel: mesh"
-        is ChannelID.Location -> "Selected channel: location/${channel.channel.level.name.lowercase(java.util.Locale.US)}"
-    }
-}

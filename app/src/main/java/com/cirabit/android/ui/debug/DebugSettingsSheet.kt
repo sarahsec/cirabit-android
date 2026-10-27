@@ -162,7 +162,7 @@ private fun DistributionInfoSection(info: DistributionInfoProvider.DistributionI
                             val clipboard = context.getSystemService(ClipboardManager::class.java)
                             clipboard?.setPrimaryClip(
                                 ClipData.newPlainText(
-                                    "BitChat signing certificate SHA-256",
+                                    "Cirabit signing certificate SHA-256",
                                     info.certificateSha256
                                 )
                             )
@@ -354,6 +354,9 @@ fun DebugSettingsSheet(
                 }
             item {
                 DistributionInfoSection(distributionInfo)
+            }
+            item {
+                SpamFilterDebugSection()
             }
             // Verbose logging toggle
             item {

@@ -21,7 +21,7 @@ class DistributionInfoProviderTest {
 
     @Test
     fun `arm64-only APK is not universal`() {
-        val apk = createApk("lib/arm64-v8a/libbitchat.so")
+        val apk = createApk("lib/arm64-v8a/libcirabit.so")
 
         assertFalse(DistributionInfoProvider.isUniversalApk(apk))
         assertEquals(
@@ -33,10 +33,10 @@ class DistributionInfoProviderTest {
     @Test
     fun `APK containing every release ABI is universal`() {
         val apk = createApk(
-            "lib/arm64-v8a/libbitchat.so",
-            "lib/armeabi-v7a/libbitchat.so",
-            "lib/x86_64/libbitchat.so",
-            "lib/x86/libbitchat.so"
+            "lib/arm64-v8a/libcirabit.so",
+            "lib/armeabi-v7a/libcirabit.so",
+            "lib/x86_64/libcirabit.so",
+            "lib/x86/libcirabit.so"
         )
 
         assertTrue(DistributionInfoProvider.isUniversalApk(apk))
@@ -59,7 +59,7 @@ class DistributionInfoProviderTest {
 
     @Test
     fun `other architecture-only APK is not offered for sharing`() {
-        val apk = createApk("lib/x86_64/libbitchat.so")
+        val apk = createApk("lib/x86_64/libcirabit.so")
 
         assertNull(DistributionInfoProvider.shareableApkVariant(apk))
     }

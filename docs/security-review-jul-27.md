@@ -1,6 +1,6 @@
-# Bitchat Android — Security Review
+# Cirabit Android — Security Review
 
-**Commit:** 92d07b22 (worktree: `~/.opencode/worktrees/bitchat-security-review`)
+**Commit:** 92d07b22 (worktree: `~/.opencode/worktrees/cirabit-security-review`)
 **Scope:** Exploitable bugs, privacy violations, tracking opportunities, DoS vectors.
 **Method:** Read-only static review of `crypto/`, `noise/`, `identity/`, `mesh/`, `protocol/`, `net/`, `service/`, `nostr/`, `geohash/`, `ui/`, `features/`, manifest & build config. All findings verified against source.
 

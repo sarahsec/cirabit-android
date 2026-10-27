@@ -50,7 +50,7 @@ Avoid names tied to private methods or temporary implementation structure.
 ## Fixtures and seeds
 
 Reusable Kotlin fixtures live under
-`com.bitchat.android.testsupport`. `ReproducibleTestSeed` resolves
+`com.cirabit.android.testsupport`. `ReproducibleTestSeed` resolves
 `TEST_SEED` and provides a reproduction hint:
 
 ```sh

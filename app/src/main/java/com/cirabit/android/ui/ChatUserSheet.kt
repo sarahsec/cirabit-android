@@ -1,6 +1,5 @@
 package com.cirabit.android.ui
 
-import android.content.ClipData
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
@@ -15,7 +14,8 @@ import com.cirabit.android.ui.theme.BASE_FONT_SIZE
 import com.cirabit.android.ui.theme.LocalCirabitPalette
 import androidx.compose.ui.res.stringResource
 import com.cirabit.android.R
-import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import com.cirabit.android.core.ui.component.sheet.CirabitBottomSheet
 import com.cirabit.android.model.CirabitMessage
 
@@ -30,11 +30,11 @@ fun ChatUserSheet(
     onDismiss: () -> Unit,
     targetNickname: String,
     selectedMessage: CirabitMessage? = null,
-    onReactToMessage: ((CirabitMessage) -> Unit)? = null,
     viewModel: ChatViewModel,
     modifier: Modifier = Modifier
 ) {
-    val clipboard = LocalClipboard.current
+    val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
     
     val colorScheme = MaterialTheme.colorScheme
     val palette = LocalCirabitPalette.current
@@ -84,22 +84,8 @@ fun ChatUserSheet(
                                 titleColor = standardGrey,
                                 onClick = {
                                     // Copy the message content to clipboard
-                                    clipboard.nativeClipboard.setPrimaryClip(
-                                        ClipData.newPlainText("cirabit_message", message.content)
-                                    )
+                                    clipboardManager.setText(AnnotatedString(message.content))
                                     onDismiss()
-                                }
-                            )
-                        }
-
-                        item {
-                            UserActionRow(
-                                title = stringResource(R.string.action_react_message_title),
-                                subtitle = stringResource(R.string.action_react_message_subtitle),
-                                titleColor = standardGreen,
-                                onClick = {
-                                    onDismiss()
-                                    onReactToMessage?.invoke(message)
                                 }
                             )
                         }
@@ -172,8 +158,8 @@ fun ChatUserSheet(
                                     // Check if we're in a geohash channel
                                     val selectedLocationChannel = viewModel.selectedLocationChannel.value
                                     if (selectedLocationChannel is com.cirabit.android.geohash.ChannelID.Location) {
-                                        // Get user's nostr public key and add to geohash block list
-                                        viewModel.blockUserInGeohash(targetNickname)
+                                        // Block the exact sender key; nicknames are not unique
+                                        viewModel.blockUserInGeohash(targetNickname, selectedMessage?.senderNostrPubkey)
                                     } else {
                                         // Regular mesh blocking
                                         viewModel.sendMessage("/block $targetNickname")

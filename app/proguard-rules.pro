@@ -24,6 +24,21 @@
     <init>();
 }
 
+# Room loads generated database implementations by name and invokes their no-argument
+# constructors reflectively. R8 full-mode can otherwise optimize away WorkDatabase_Impl's
+# constructor, causing AndroidX Startup to crash before Application.onCreate.
+-keepclassmembers class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+
+# ML Kit discovers Firebase component registrars from manifest metadata and calls
+# their no-argument constructors reflectively. Keeping the class alone does not
+# retain that constructor in R8 full mode, leaving BarcodeScanning without its
+# registered components and crashing when the verification scanner opens.
+-keepclassmembers class * implements com.google.firebase.components.ComponentRegistrar {
+    public <init>();
+}
+
 # Keep Tor implementation (always included)
 -keep class com.cirabit.android.net.RealTorProvider { *; }
 

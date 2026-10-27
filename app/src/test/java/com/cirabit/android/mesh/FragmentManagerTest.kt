@@ -183,118 +183,25 @@ class FragmentManagerTest {
     }
 
     @Test
-    fun `oversized fragment set is dropped before reassembly`() {
-        val constrainedManager = FragmentManager(maxIncomingBytes = 64L)
-        val fragmentID = ByteArray(8) { 0x01 }
-
-        val fragmentA = CirabitPacket(
+    fun `inbound fragment set above 256 is rejected`() {
+        val payload = FragmentPayload(
+            fragmentID = ByteArray(8) { 1 },
+            index = 0,
+            total = 257,
+            originalType = MessageType.NOISE_ENCRYPTED.value,
+            data = byteArrayOf(1)
+        ).encode()
+        val packet = CirabitPacket(
             version = 1u,
             type = MessageType.FRAGMENT.value,
             senderID = hexStringToByteArray(senderID),
             recipientID = hexStringToByteArray(recipientID),
-            timestamp = System.currentTimeMillis().toULong(),
-            payload = FragmentPayload(
-                fragmentID = fragmentID,
-                index = 0,
-                total = 2,
-                originalType = MessageType.FILE_TRANSFER.value,
-                data = ByteArray(40) { 0x11 }
-            ).encode(),
+            timestamp = 1u,
+            payload = payload,
             ttl = 7u
         )
 
-        val fragmentB = CirabitPacket(
-            version = 1u,
-            type = MessageType.FRAGMENT.value,
-            senderID = hexStringToByteArray(senderID),
-            recipientID = hexStringToByteArray(recipientID),
-            timestamp = System.currentTimeMillis().toULong(),
-            payload = FragmentPayload(
-                fragmentID = fragmentID,
-                index = 1,
-                total = 2,
-                originalType = MessageType.FILE_TRANSFER.value,
-                data = ByteArray(40) { 0x22 }
-            ).encode(),
-            ttl = 7u
-        )
-
-        assertNull(constrainedManager.handleFragment(fragmentA))
-        assertNull(constrainedManager.handleFragment(fragmentB))
-        assertTrue(constrainedManager.getDebugInfo().contains("Active Fragment Sets: 0"))
-    }
-
-    @Test
-    fun `new fragment set is rejected when active set cap reached`() {
-        val constrainedManager = FragmentManager(maxActiveFragmentSets = 1, maxIncomingBytes = 1024L)
-
-        val setAFragment = createFragmentPacket(
-            fragmentID = ByteArray(8) { 0x0A },
-            index = 0,
-            total = 2,
-            dataSize = 20
-        )
-        val setBFragment = createFragmentPacket(
-            fragmentID = ByteArray(8) { 0x0B },
-            index = 0,
-            total = 2,
-            dataSize = 20
-        )
-
-        assertNull(constrainedManager.handleFragment(setAFragment))
-        assertNull(constrainedManager.handleFragment(setBFragment))
-        val debugInfo = constrainedManager.getDebugInfo()
-        assertTrue(debugInfo.contains("Active Fragment Sets: 1"))
-    }
-
-    @Test
-    fun `fragment is rejected when global buffered bytes cap is exceeded`() {
-        val constrainedManager = FragmentManager(
-            maxIncomingBytes = 1024L,
-            maxGlobalBufferedBytes = 60L
-        )
-
-        val setAFragment = createFragmentPacket(
-            fragmentID = ByteArray(8) { 0x1A },
-            index = 0,
-            total = 2,
-            dataSize = 40
-        )
-        val setBFragment = createFragmentPacket(
-            fragmentID = ByteArray(8) { 0x1B },
-            index = 0,
-            total = 2,
-            dataSize = 40
-        )
-
-        assertNull(constrainedManager.handleFragment(setAFragment))
-        assertNull(constrainedManager.handleFragment(setBFragment))
-        val debugInfo = constrainedManager.getDebugInfo()
-        assertTrue(debugInfo.contains("Active Fragment Sets: 1"))
-        assertTrue(debugInfo.contains("Global Buffered Bytes: 40"))
-    }
-
-    private fun createFragmentPacket(
-        fragmentID: ByteArray,
-        index: Int,
-        total: Int,
-        dataSize: Int
-    ): CirabitPacket {
-        return CirabitPacket(
-            version = 1u,
-            type = MessageType.FRAGMENT.value,
-            senderID = hexStringToByteArray(senderID),
-            recipientID = hexStringToByteArray(recipientID),
-            timestamp = System.currentTimeMillis().toULong(),
-            payload = FragmentPayload(
-                fragmentID = fragmentID,
-                index = index,
-                total = total,
-                originalType = MessageType.FILE_TRANSFER.value,
-                data = ByteArray(dataSize) { 0x33 }
-            ).encode(),
-            ttl = 7u
-        )
+        assertNull(fragmentManager.handleFragment(packet))
     }
 
     @Test
@@ -344,5 +251,144 @@ class FragmentManagerTest {
             result[i] = byteStr.toInt(16).toByte()
         }
         return result
+    }
+
+    // Injected-fragment hardening. Fragment packets are unauthenticated and
+    // both halves of the reassembly key are attacker-choosable, so a stream in
+    // flight has to survive a crafted packet aimed at it. Ports the storage
+    // rules from permissionlesstech/cirabit#1515.
+
+    /** A real packet, fragmented the way the sender would fragment it. */
+    private fun honestStream(): Pair<CirabitPacket, List<CirabitPacket>> {
+        val payload = ByteArray(1200) { (it % 251).toByte() }
+        val packet = CirabitPacket(
+            version = 1u,
+            type = MessageType.FILE_TRANSFER.value,
+            senderID = hexStringToByteArray(senderID),
+            recipientID = hexStringToByteArray(recipientID),
+            timestamp = 1u,
+            payload = payload,
+            ttl = 7u
+        )
+        val fragments = fragmentManager.createFragments(packet)
+        assertTrue("Need a multi-fragment stream", fragments.size >= 3)
+        return packet to fragments
+    }
+
+    /** Same stream key as [honest], but attacker-chosen contents. */
+    private fun injected(
+        honest: CirabitPacket,
+        index: Int,
+        total: Int,
+        data: ByteArray,
+        originalType: UByte
+    ): CirabitPacket {
+        val decoded = FragmentPayload.decode(honest.payload)!!
+        return honest.copy(
+            payload = FragmentPayload(
+                fragmentID = decoded.fragmentID,
+                index = index,
+                total = total,
+                originalType = originalType,
+                data = data
+            ).encode()
+        )
+    }
+
+    private fun feedAllButLast(fragments: List<CirabitPacket>) {
+        fragments.dropLast(1).forEach {
+            assertNull("No fragment before the last should complete", fragmentManager.handleFragment(it))
+        }
+    }
+
+    private fun assertCompletes(original: CirabitPacket, last: CirabitPacket) {
+        val reassembled = fragmentManager.handleFragment(last)
+        assertNotNull("The honest stream must still complete", reassembled)
+        assertTrue(
+            "Reassembled payload must be the honest bytes",
+            original.payload.contentEquals(reassembled!!.payload)
+        )
+    }
+
+    @Test
+    fun `a conflicting total is rejected without destroying the stream`() {
+        val (original, fragments) = honestStream()
+        feedAllButLast(fragments)
+
+        val decoded = FragmentPayload.decode(fragments[0].payload)!!
+        assertNull(
+            fragmentManager.handleFragment(
+                injected(fragments[0], index = 0, total = decoded.total - 1,
+                         data = ByteArray(4), originalType = decoded.originalType)
+            )
+        )
+
+        assertCompletes(original, fragments.last())
+    }
+
+    @Test
+    fun `a conflicting original type is rejected without destroying the stream`() {
+        val (original, fragments) = honestStream()
+        feedAllButLast(fragments)
+
+        val decoded = FragmentPayload.decode(fragments[0].payload)!!
+        assertNull(
+            fragmentManager.handleFragment(
+                injected(fragments[0], index = 0, total = decoded.total,
+                         data = ByteArray(4), originalType = MessageType.ANNOUNCE.value)
+            )
+        )
+
+        assertCompletes(original, fragments.last())
+    }
+
+    @Test
+    fun `an index already held keeps its first bytes`() {
+        val (original, fragments) = honestStream()
+        feedAllButLast(fragments)
+
+        // Same stream, same index, different bytes: last-wins would swap the
+        // real sender's bytes out from under the reassembly.
+        val decoded = FragmentPayload.decode(fragments[0].payload)!!
+        assertNull(
+            fragmentManager.handleFragment(
+                injected(fragments[0], index = 0, total = decoded.total,
+                         data = ByteArray(decoded.data.size) { 0x66 },
+                         originalType = decoded.originalType)
+            )
+        )
+
+        assertCompletes(original, fragments.last())
+    }
+
+    @Test
+    fun `an identical duplicate is still accepted`() {
+        // Duplicate delivery is normal in a mesh; only a *differing* duplicate
+        // is an attack, so redelivery must not be turned into a rejection.
+        val (original, fragments) = honestStream()
+        feedAllButLast(fragments)
+
+        assertNull(fragmentManager.handleFragment(fragments[0]))
+
+        assertCompletes(original, fragments.last())
+    }
+
+    @Test
+    fun `an oversized fragment cannot wipe an assembly it did not start`() {
+        val (original, fragments) = honestStream()
+        feedAllButLast(fragments)
+
+        val decoded = FragmentPayload.decode(fragments[0].payload)!!
+        val oversized = ByteArray(
+            com.cirabit.android.util.AppConstants.Fragmentation.MAX_FRAGMENT_TOTAL_BYTES + 1
+        )
+        assertNull(
+            fragmentManager.handleFragment(
+                injected(fragments[0], index = decoded.total - 1, total = decoded.total,
+                         data = oversized, originalType = decoded.originalType)
+            )
+        )
+
+        assertCompletes(original, fragments.last())
     }
 }

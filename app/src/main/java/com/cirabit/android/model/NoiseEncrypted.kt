@@ -24,11 +24,9 @@ enum class NoisePayloadType(val value: UByte) {
     VOICE_FRAME(0x08u),         // Ephemeral live push-to-talk frame
     VERIFY_CHALLENGE(0x10u),    // Verification challenge
     VERIFY_RESPONSE(0x11u),     // Verification response
-    FILE_TRANSFER(0x20u),       // Encrypted file transfer
+    FILE_TRANSFER(0x20u),
     /** Authenticated capabilities + Ed25519 binding for the current Noise generation. */
-    PEER_STATE(0x21u),
-    // Cirabit-only: moved from 0x21 to 0x22 when merging upstream PEER_STATE (0x21).
-    REACTION(0x22u);            // Encrypted emoji reaction update
+    PEER_STATE(0x21u);
 
 
     companion object {

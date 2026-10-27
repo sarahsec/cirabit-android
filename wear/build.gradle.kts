@@ -19,8 +19,8 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         // Wear releases use a separate high range because Play requires every artifact in
         // one application ID to have a unique version code across all form factors.
-        versionCode = 1_000_000_005
-        versionName = "0.1.4"
+        versionCode = 1_000_000_008
+        versionName = "0.1.7"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -95,6 +95,7 @@ val sharedSourceIncludes = listOf(
     "com/cirabit/android/sync/**",
     "com/cirabit/android/favorites/**",
     "com/cirabit/android/services/AppStateStore.kt",
+    "com/cirabit/android/services/PeerConversationReconciler.kt",
     "com/cirabit/android/services/ContactDirectory.kt",
     "com/cirabit/android/services/ContactIdentityResolver.kt",
     "com/cirabit/android/services/ConversationRepository.kt",
@@ -104,6 +105,7 @@ val sharedSourceIncludes = listOf(
     "com/cirabit/android/services/VerificationService.kt",
     "com/cirabit/android/services/meshgraph/**",
     "com/cirabit/android/service/TransportBridgeService.kt",
+    "com/cirabit/android/spam/**",
     "com/cirabit/android/nostr/Bech32.kt",
     "com/cirabit/android/nostr/GeohashAliasRegistry.kt",
     "com/cirabit/android/features/file/FileUtils.kt",
@@ -118,6 +120,8 @@ val sharedSourceIncludes = listOf(
 )
 val sharedSourceExcludes = listOf(
     "com/cirabit/android/model/FileSharingManager.kt",
+    // The watch has no spam filter toggle, so it keeps the filter's default (on).
+    "com/cirabit/android/spam/SpamFilterPreferences.kt",
     // Legacy phone monolith and Wi-Fi Aware multiplexer; the watch composes its own service
     // (MeshCore-style) in M2 instead of reusing these.
     "com/cirabit/android/mesh/BluetoothMeshService.kt",
@@ -160,12 +164,12 @@ val syncSharedAppTests = tasks.register<Sync>("syncSharedAppTests") {
 android {
     sourceSets {
         getByName("main") {
-            java.directories.add("build/sharedSrc")
-            kotlin.directories.add("build/sharedSrc")
+            java.srcDir("build/sharedSrc")
+            kotlin.srcDir("build/sharedSrc")
         }
         getByName("test") {
-            java.directories.add("build/sharedTestSrc")
-            kotlin.directories.add("build/sharedTestSrc")
+            java.srcDir("build/sharedTestSrc")
+            kotlin.srcDir("build/sharedTestSrc")
         }
     }
 }

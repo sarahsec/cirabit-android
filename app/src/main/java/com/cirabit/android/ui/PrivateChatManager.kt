@@ -63,7 +63,7 @@ class PrivateChatManager(
             val peerNickname = route.displayName ?: getPeerNickname(peerID, meshService)
             val systemMessage = CirabitMessage(
                 sender = "system",
-                content = "Cannot start chat with $peerNickname: user is blocked.",
+                content = "cannot start chat with $peerNickname: user is blocked.",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -109,7 +109,7 @@ class PrivateChatManager(
         if (isPeerBlocked(peerID)) {
             val systemMessage = CirabitMessage(
                 sender = "system",
-                content = "Cannot send message to $recipientNickname: user is blocked.",
+                content = "cannot send message to $recipientNickname: user is blocked.",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -272,7 +272,7 @@ class PrivateChatManager(
             val peerNickname = getPeerNickname(peerID, meshService)
             val systemMessage = CirabitMessage(
                 sender = "system",
-                content = "Blocked user $peerNickname",
+                content = "blocked user $peerNickname",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -296,7 +296,7 @@ class PrivateChatManager(
             val peerNickname = getPeerNickname(peerID, meshService)
             val systemMessage = CirabitMessage(
                 sender = "system",
-                content = "Unblocked user $peerNickname",
+                content = "unblocked user $peerNickname",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -314,7 +314,7 @@ class PrivateChatManager(
         } else {
             val systemMessage = CirabitMessage(
                 sender = "system",
-                content = "User '$targetName' not found",
+                content = "user '$targetName' not found",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -333,7 +333,7 @@ class PrivateChatManager(
             } else {
                 val systemMessage = CirabitMessage(
                     sender = "system",
-                    content = "User '$targetName' is not blocked",
+                    content = "user '$targetName' is not blocked",
                     timestamp = Date(),
                     isRelay = false
                 )
@@ -343,7 +343,7 @@ class PrivateChatManager(
         } else {
             val systemMessage = CirabitMessage(
                 sender = "system",
-                content = "User '$targetName' not found",
+                content = "user '$targetName' not found",
                 timestamp = Date(),
                 isRelay = false
             )
@@ -355,9 +355,9 @@ class PrivateChatManager(
     fun listBlockedUsers(): String {
         val blockedCount = dataManager.blockedUsers.size
         return if (blockedCount == 0) {
-            "No blocked users"
+            "no blocked users"
         } else {
-            "Blocked users: $blockedCount fingerprints"
+            "blocked users: $blockedCount fingerprints"
         }
     }
 

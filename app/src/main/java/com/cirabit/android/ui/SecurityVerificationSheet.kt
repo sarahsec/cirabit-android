@@ -1,6 +1,5 @@
 package com.cirabit.android.ui
 
-import android.content.ClipData
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Verified
@@ -36,9 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -373,7 +371,7 @@ private fun FingerprintBlock(
     boxColor: Color,
     accent: Color
 ) {
-    val clipboard = LocalClipboard.current
+    val clipboardManager = LocalClipboardManager.current
     var showMenu by remember(fingerprint) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -417,9 +415,7 @@ private fun FingerprintBlock(
                     DropdownMenuItem(
                         text = { Text(text = stringResource(R.string.fingerprint_copy)) },
                         onClick = {
-                            clipboard.nativeClipboard.setPrimaryClip(
-                                ClipData.newPlainText("cirabit_fingerprint", fingerprint)
-                            )
+                            clipboardManager.setText(AnnotatedString(fingerprint))
                             showMenu = false
                         }
                     )

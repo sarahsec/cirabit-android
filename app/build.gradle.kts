@@ -1,5 +1,3 @@
-import java.util.Properties
-
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -8,9 +6,12 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Opt-in instrumentation of the minified variant; production release signing is unchanged.
+val releaseUiTests = providers.gradleProperty("releaseUiTests").orNull == "true"
+
 val githubReleaseCertSha256 = providers
-    .environmentVariable("BITCHAT_GITHUB_RELEASE_CERT_SHA256")
-    .orElse(providers.gradleProperty("BITCHAT_GITHUB_RELEASE_CERT_SHA256"))
+    .environmentVariable("CIRABIT_GITHUB_RELEASE_CERT_SHA256")
+    .orElse(providers.gradleProperty("CIRABIT_GITHUB_RELEASE_CERT_SHA256"))
     .orElse("")
 val normalizedGithubReleaseCertSha256 = githubReleaseCertSha256.get()
     .replace(":", "")
@@ -20,32 +21,32 @@ require(
     normalizedGithubReleaseCertSha256.isEmpty() ||
         normalizedGithubReleaseCertSha256.matches(Regex("[a-f0-9]{64}"))
 ) {
-    "BITCHAT_GITHUB_RELEASE_CERT_SHA256 must be a SHA-256 certificate fingerprint"
+    "CIRABIT_GITHUB_RELEASE_CERT_SHA256 must be a SHA-256 certificate fingerprint"
 }
 
 android {
-    testOptions {
-        // Cirabit: CommandProcessor resolves localized strings, so Robolectric tests need app resources.
-        unitTests.isIncludeAndroidResources = true
-    }
-
     namespace = "com.cirabit.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
     buildToolsVersion = libs.versions.buildTools.get()
+    if (releaseUiTests) testBuildType = "release"
 
     defaultConfig {
         applicationId = "com.cirabit.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 32
-        versionName = "1.7.3"
+        versionCode = 42
+        versionName = "2.2.0"
         buildConfigField(
             "String",
             "GITHUB_RELEASE_CERT_SHA256",
             "\"$normalizedGithubReleaseCertSha256\""
         )
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = if (releaseUiTests) {
+            "com.cirabit.android.ui.ReleaseScannerTestRunner"
+        } else {
+            "com.cirabit.android.ui.PerformanceTestRunner"
+        }
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -58,26 +59,6 @@ android {
         includeInBundle = false
     }
 
-    val signingPropertiesFile = rootProject.file("signing.properties")
-    val signingProperties = Properties()
-    if (signingPropertiesFile.exists()) {
-        signingPropertiesFile.inputStream().use(signingProperties::load)
-    }
-
-    val hasReleaseSigning = listOf("STORE_FILE", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD")
-        .all { !signingProperties.getProperty(it).isNullOrBlank() }
-
-    signingConfigs {
-        if (hasReleaseSigning) {
-            create("release") {
-                storeFile = rootProject.file(signingProperties.getProperty("STORE_FILE"))
-                storePassword = signingProperties.getProperty("STORE_PASSWORD")
-                keyAlias = signingProperties.getProperty("KEY_ALIAS")
-                keyPassword = signingProperties.getProperty("KEY_PASSWORD")
-            }
-        }
-    }
-
     buildTypes {
         debug {
             ndk {
@@ -86,10 +67,10 @@ android {
             }
         }
         release {
-            if (hasReleaseSigning) {
-                signingConfig = signingConfigs.getByName("release")
+            if (releaseUiTests) {
+                signingConfig = signingConfigs.getByName("debug")
+                proguardFiles("release-instrumentation.pro")
             }
-
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -123,8 +104,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
         compose = true
@@ -150,9 +131,9 @@ composeCompiler {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
+        jvmTarget.set(JvmTarget.JVM_11)
     }
 }
 
@@ -161,18 +142,18 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
-
+    
     // Compose
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
-
+    
     // Lifecycle
     implementation(libs.bundles.lifecycle)
     implementation(libs.androidx.lifecycle.process)
-
+    
     // Navigation
     implementation(libs.androidx.navigation.compose)
-
+    
     // Permissions
     implementation(libs.accompanist.permissions)
 
@@ -184,16 +165,16 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.compose)
-
+    
     // Cryptography
     implementation(libs.bundles.cryptography)
-
+    
     // JSON
     implementation(libs.gson)
-
+    
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
-
+    
     // Bluetooth
     implementation(libs.nordic.ble)
 
@@ -215,15 +196,20 @@ dependencies {
     // Google Play Services Location
     implementation(libs.gms.location)
 
-    implementation(libs.androidx.biometric)
-
+    // Security preferences
+    implementation(libs.androidx.security.crypto)
+    
     // EXIF orientation handling for images
     implementation(libs.androidx.exifinterface)
     
     // Testing
     testImplementation(libs.bundles.testing)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.bundles.compose.testing)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.runner)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 

@@ -60,7 +60,6 @@ import com.cirabit.android.core.ui.component.sheet.CirabitSheetTopBar
 import com.cirabit.android.favorites.FavoriteRelationship
 import com.cirabit.android.favorites.FavoritesPersistenceService
 import com.cirabit.android.geohash.ChannelID
-import com.cirabit.android.model.CirabitMessage
 import com.cirabit.android.identity.SecureIdentityStateManager
 import com.cirabit.android.model.CirabitMessageType
 import com.cirabit.android.ui.theme.BASE_FONT_SIZE
@@ -465,8 +464,8 @@ fun MeshPeerListSheet(
                                 Icon(
                                     imageVector = Icons.Outlined.QrCode,
                                     contentDescription = stringResource(R.string.verify_title),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp)
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(HeaderIconSize)
                                 )
                             }
                         }
@@ -1688,7 +1687,6 @@ fun PrivateChatSheet(
     val favoritePeers by viewModel.favoritePeers.collectAsStateWithLifecycle()
     val peerFavoritedUs by viewModel.peerFavoritedUs.collectAsStateWithLifecycle()
     val peerFingerprints by viewModel.peerFingerprints.collectAsStateWithLifecycle()
-    val messageReactions by viewModel.messageReactions.collectAsStateWithLifecycle()
 
     val verifiedFingerprints by viewModel.verifiedFingerprints.collectAsStateWithLifecycle()
     val wifiAwareConnected by com.cirabit.android.wifiaware.WifiAwareController.connectedPeers.collectAsStateWithLifecycle()
@@ -1804,8 +1802,6 @@ fun PrivateChatSheet(
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
     )
-    var showReactionPicker by remember { mutableStateOf(false) }
-    var selectedMessageForReaction by remember { mutableStateOf<CirabitMessage?>(null) }
 
     if (isPresented) {
         CirabitBottomSheet(
@@ -1826,22 +1822,14 @@ fun PrivateChatSheet(
 
                     MessagesList(
                         messages = messages,
-                        messageReactions = messageReactions,
                         currentUserNickname = nickname,
-                        currentUserPeerID = viewModel.meshService.myPeerID,
                         meshService = viewModel.meshServiceFacade,
                         modifier = Modifier.weight(1f),
                         conversationKey = "dm:$peerID",
                         forceScrollToBottom = forceScrollToBottom,
                         onScrolledUpChanged = { isUp -> isScrolledUp = isUp },
                         onNicknameClick = { /* handle mention */ },
-                        onMessageLongPress = { message ->
-                            selectedMessageForReaction = message
-                            showReactionPicker = true
-                        },
-                        onReactionClick = { message, emoji ->
-                            viewModel.toggleMessageReaction(message, emoji)
-                        },
+                        onMessageLongPress = { /* handle long press */ },
                         onCancelTransfer = { msg -> viewModel.cancelMediaSend(msg.id) },
                         onImageClick = { _, _, _ -> /* handle image click */ }
                     )
@@ -1986,19 +1974,4 @@ fun PrivateChatSheet(
             }
         }
     }
-
-    MessageReactionPicker(
-        isVisible = showReactionPicker,
-        onDismiss = {
-            showReactionPicker = false
-            selectedMessageForReaction = null
-        },
-        onEmojiSelected = { emoji ->
-            selectedMessageForReaction?.let { message ->
-                viewModel.toggleMessageReaction(message, emoji)
-            }
-            showReactionPicker = false
-            selectedMessageForReaction = null
-        }
-    )
 }

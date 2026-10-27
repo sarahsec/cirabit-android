@@ -164,7 +164,7 @@ if [[ -z "$before_sha" ]]; then
   exit 1
 fi
 
-session_dir="$(mktemp -d /tmp/bitchat-ui-review.XXXXXX)"
+session_dir="$(mktemp -d /tmp/cirabit-ui-review.XXXXXX)"
 worktree_path="${session_dir}/worktree"
 artifact_dir="${session_dir}/artifacts"
 mkdir -p "$artifact_dir"

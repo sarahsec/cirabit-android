@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cirabit.android.ui.theme.CirabitFontFamily
 import com.cirabit.android.R
-import com.cirabit.android.core.ui.icon.BitChatIcon
+import com.cirabit.android.core.ui.icon.CirabitIcon
 import com.cirabit.android.ui.theme.CirabitMotion
 import com.cirabit.android.ui.theme.LocalCirabitPalette
 
@@ -186,7 +186,7 @@ internal fun AboutHero(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(
-            imageVector = BitChatIcon,
+            imageVector = CirabitIcon,
             contentDescription = null,
             tint = colorScheme.primary,
             modifier = Modifier.size(64.dp)

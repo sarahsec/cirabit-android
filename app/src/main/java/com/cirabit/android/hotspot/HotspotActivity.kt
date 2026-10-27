@@ -110,7 +110,7 @@ fun HotspotScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Share BitChat",
+                        text = "Share Cirabit",
                         fontFamily = CirabitFontFamily
                     )
                 },
@@ -233,7 +233,7 @@ fun IntroScreen(onStartHotspot: () -> Unit) {
                 InfoItem("1. Your device creates a Wi-Fi hotspot")
                 InfoItem("2. Others connect to your hotspot")
                 InfoItem("3. They scan a QR code or enter a URL")
-                InfoItem("4. BitChat downloads directly to their device")
+                InfoItem("4. Cirabit downloads directly to their device")
             }
         }
 
@@ -258,11 +258,11 @@ fun IntroScreen(onStartHotspot: () -> Unit) {
                     Text(
                         text = when {
                             Build.VERSION.SDK_INT >= HotspotPermissions.ANDROID_17_API_LEVEL ->
-                                "BitChat needs nearby devices and local network access to create a Wi-Fi hotspot and serve the app to connected devices."
+                                "Cirabit needs nearby devices and local network access to create a Wi-Fi hotspot and serve the app to connected devices."
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
-                                "BitChat needs nearby devices permission to create a Wi-Fi hotspot for sharing the app offline."
+                                "Cirabit needs nearby devices permission to create a Wi-Fi hotspot for sharing the app offline."
                             else ->
-                                "BitChat needs location permission to create a Wi-Fi hotspot. This is required by Android for Wi-Fi scanning, but no location data is collected."
+                                "Cirabit needs location permission to create a Wi-Fi hotspot. This is required by Android for Wi-Fi scanning, but no location data is collected."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -530,7 +530,7 @@ fun WebsiteTabContent(ipAddress: String, port: Int) {
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Text(
-            text = "Step 2: Download BitChat",
+            text = "Step 2: Download Cirabit",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
@@ -598,7 +598,7 @@ fun WebsiteTabContent(ipAddress: String, port: Int) {
                     text = "1. Make sure you're connected to the Wi-Fi network above\n" +
                             "2. Open a web browser on your device\n" +
                             "3. Visit the URL above or scan the QR code\n" +
-                            "4. Tap 'Download BitChat'\n" +
+                            "4. Tap 'Download Cirabit'\n" +
                             "5. Install the downloaded APK",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)

@@ -1,9 +1,5 @@
 package com.cirabit.android.ui.media
 
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -60,14 +56,7 @@ fun ImageMessageItem(
     val imageShape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
 
     val context = LocalContext.current
-    // Cirabit: bounded, hardened decode (SecureImageDecoder) instead of an unbounded decodeFile.
-    val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
-    val targetWidthPx = with(density) { 300.dp.roundToPx().coerceAtLeast(1) }
-    val targetHeightPx = with(density) { configuration.screenHeightDp.dp.roundToPx().coerceAtLeast(1) }
-    val bmp by produceState<android.graphics.Bitmap?>(initialValue = null, path, targetWidthPx, targetHeightPx) {
-        value = SecureImageDecoder.decodeForDisplay(path, targetWidthPx, targetHeightPx)
-    }
+    val bmp = remember(path) { try { android.graphics.BitmapFactory.decodeFile(path) } catch (_: Exception) { null } }
 
     // Collect all image paths from messages for swipe navigation
     val imagePaths = remember(messages) {

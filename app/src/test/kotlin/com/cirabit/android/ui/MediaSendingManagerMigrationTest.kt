@@ -412,7 +412,7 @@ class MediaSendingManagerMigrationTest {
     fun `oversized file failure is posted to the private conversation and nothing is sent`() {
         val bigFile = kotlin.io.path.createTempFile("oversized-private", ".jpg").toFile()
         try {
-            bigFile.writeBytes(ByteArray((com.cirabit.android.util.AppConstants.Media.MAX_FILE_SIZE_BYTES + 1024L).toInt()) { 0x42 })
+            bigFile.writeBytes(ByteArray(11 * 1024 * 1024) { 0x42 })
 
             manager.sendImageNote(peerID, null, bigFile.absolutePath)
 
@@ -431,7 +431,7 @@ class MediaSendingManagerMigrationTest {
     fun `oversized file failure is posted to the channel and nothing is sent`() {
         val bigFile = kotlin.io.path.createTempFile("oversized-channel", ".jpg").toFile()
         try {
-            bigFile.writeBytes(ByteArray((com.cirabit.android.util.AppConstants.Media.MAX_FILE_SIZE_BYTES + 1024L).toInt()) { 0x42 })
+            bigFile.writeBytes(ByteArray(11 * 1024 * 1024) { 0x42 })
 
             manager.sendImageNote(null, "#test", bigFile.absolutePath)
 

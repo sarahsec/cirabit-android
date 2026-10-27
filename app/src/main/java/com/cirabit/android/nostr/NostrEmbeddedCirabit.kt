@@ -8,17 +8,20 @@ import com.cirabit.android.model.NoisePayloadType
 import com.cirabit.android.protocol.CirabitPacket
 import com.cirabit.android.protocol.MessageType
 import com.cirabit.android.services.ContactIdentityResolver
+import java.security.SecureRandom
 import java.util.*
 
 /**
- * BitChat-over-Nostr Adapter
+ * Cirabit-over-Nostr Adapter
  */
-object NostrEmbeddedBitChat {
+object NostrEmbeddedCirabit {
     
-    private const val TAG = "NostrEmbeddedBitChat"
+    private const val TAG = "NostrEmbeddedCirabit"
+    private const val SENDER_ID_SIZE = 8
+    private val secureRandom = SecureRandom()
     
     /**
-     * Build a `cirabit1:` base64url-encoded BitChat packet carrying a private message for Nostr DMs.
+     * Build a `cirabit1:` base64url-encoded Cirabit packet carrying a private message for Nostr DMs.
      */
     fun encodePMForNostr(
         content: String,
@@ -59,7 +62,7 @@ object NostrEmbeddedBitChat {
     }
     
     /**
-     * Build a `cirabit1:` base64url-encoded BitChat packet carrying a delivery/read ack for Nostr DMs.
+     * Build a `cirabit1:` base64url-encoded Cirabit packet carrying a delivery/read ack for Nostr DMs.
      */
     fun encodeAckForNostr(
         type: NoisePayloadType,
@@ -100,11 +103,11 @@ object NostrEmbeddedBitChat {
     
     /**
      * Build a `cirabit1:` ACK (delivered/read) without an embedded recipient peer ID (geohash DMs).
+     * The sender ID is random per envelope; see [unlinkableSenderID].
      */
     fun encodeAckForNostrNoRecipient(
         type: NoisePayloadType,
-        messageID: String,
-        senderPeerID: String
+        messageID: String
     ): String? {
         if (type != NoisePayloadType.DELIVERED && type != NoisePayloadType.READ_RECEIPT) {
             return null
@@ -119,7 +122,7 @@ object NostrEmbeddedBitChat {
             val packet = CirabitPacket(
                 version = 1u,
                 type = MessageType.NOISE_ENCRYPTED.value,
-                senderID = hexStringToByteArray(senderPeerID),
+                senderID = unlinkableSenderID(),
                 recipientID = null, // No recipient for geohash DMs
                 timestamp = System.currentTimeMillis().toULong(),
                 payload = payload,
@@ -137,11 +140,11 @@ object NostrEmbeddedBitChat {
     
     /**
      * Build a `cirabit1:` payload without an embedded recipient peer ID (used for geohash DMs).
+     * The sender ID is random per envelope; see [unlinkableSenderID].
      */
     fun encodePMForNostrNoRecipient(
         content: String,
-        messageID: String,
-        senderPeerID: String
+        messageID: String
     ): String? {
         try {
             val pm = PrivateMessagePacket(messageID = messageID, content = content)
@@ -154,7 +157,7 @@ object NostrEmbeddedBitChat {
             val packet = CirabitPacket(
                 version = 1u,
                 type = MessageType.NOISE_ENCRYPTED.value,
-                senderID = hexStringToByteArray(senderPeerID),
+                senderID = unlinkableSenderID(),
                 recipientID = null, // No recipient for geohash DMs
                 timestamp = System.currentTimeMillis().toULong(),
                 payload = payload,
@@ -170,6 +173,19 @@ object NostrEmbeddedBitChat {
         }
     }
     
+    /**
+     * Sender ID for the recipient-less envelopes above. They go out under a
+     * per-geohash identity (and as the acks for inbound account DMs), where no
+     * receiver reads this field: iOS and Android both key these conversations
+     * on the Nostr sender pubkey. The mesh peer ID must never go here: it is the
+     * stable Noise fingerprint prefix, so anyone who DMs a geohash identity (and
+     * gets the automatic DELIVERED ack back) could link that persona to the
+     * device and to its other geohash personas. Fresh random bytes per envelope
+     * keep even our own envelopes unlinkable.
+     */
+    private fun unlinkableSenderID(): ByteArray =
+        ByteArray(SENDER_ID_SIZE).also { secureRandom.nextBytes(it) }
+
     /**
      * Normalize recipient peer ID (matches iOS implementation)
      */

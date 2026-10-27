@@ -1,17 +1,12 @@
 package com.cirabit.android.mesh
 
 import com.cirabit.android.model.CirabitMessage
-import com.cirabit.android.model.MessageReaction
 
 /**
  * Shared mesh delegate interface for transport-agnostic callbacks.
  */
 interface MeshDelegate {
     fun didReceiveMessage(message: CirabitMessage)
-    /** Cirabit: emoji reaction update received for an existing message. */
-    fun didReceiveMessageReaction(reaction: MessageReaction) {}
-    /** Cirabit: a queued private reaction was dropped before it could be sent. */
-    fun didDropPendingReaction(reaction: MessageReaction, recipientPeerID: String, reason: String) {}
     fun didUpdatePeerList(peers: List<String>)
     fun didReceiveChannelLeave(channel: String, fromPeer: String)
     fun didReceiveDeliveryAck(messageID: String, recipientPeerID: String)

@@ -1,6 +1,6 @@
 # Client rewrite compatibility contracts
 
-This document defines the behavior a from-scratch BitChat client must preserve.
+This document defines the behavior a from-scratch Cirabit client must preserve.
 The executable source of truth is the JVM test suite under
 `app/src/test/**/contracts`, together with the pre-existing protocol, security,
 mesh, and state tests.
@@ -12,7 +12,7 @@ The remaining implementation work and milestone progress are tracked in
 
 | Layer | Compatibility promise | Primary tests |
 |---|---|---|
-| Outer mesh packet | v1/v2 header widths, big-endian fields, flags, section order, route placement, signature placement, padding, compression, signing bytes | `BinaryProtocolTest`, `ClientRewriteWireContractTest` |
+| Outer mesh packet | v1/v2 header widths, big-endian fields, flags, section order, route placement, signature placement, padding, compression, signing bytes, per-type payload caps ([PACKET_PAYLOAD_LIMITS.md](PACKET_PAYLOAD_LIMITS.md)) | `BinaryProtocolTest`, `ClientRewriteWireContractTest`, `PacketPayloadLimitsWireContractTest` |
 | Chat payload | Flag bits, millisecond timestamp, UTF-8 byte lengths, encrypted-content substitution, optional-field order | `ClientRewriteWireContractTest` |
 | Inner payloads | Noise type bytes, private-message TLVs, peer-state TLVs, file-transfer TLVs, live-voice bursts, fragment header, sync request TLVs | `ClientRewriteWireContractTest`, `AuthenticatedPeerStateTest`, `PrivateMediaTransferPreparerTest`, `VoiceBurstPacketTest`, `FragmentManagerTest` |
 | Identity/security | Announcement extensions, capability bitfield endianness, Noise static-key binding, handshake identity binding, signatures | `IdentityAnnouncementTest`, `NoiseSessionManagerIdentityBindingTest`, `ClientRewritePrimitiveContractTest` |
@@ -35,6 +35,18 @@ NIP-17 receivers should reserve safety slack beyond the maximum timestamp
 randomization used by senders. Android caps outbound seal and gift-wrap
 randomization at 22h, leaving 2 hours of slack inside iOS's 24-hour
 subscription window, while retaining its 48-hour receive lookback.
+
+Geohash (recipient-less) `cirabit1:` envelopes and their acks carry 8 fresh
+random bytes in the embedded packet's sender field, never the mesh peer ID,
+which would link a geohash identity to the device. Receivers key these
+conversations on the Nostr sender pubkey and must not read the field
+(`NostrEmbeddedCirabitTest`).
+
+Bech32 byte decoding must reject nonzero discarded bits and a residual whole
+five-bit symbol. A valid checksum alone does not make byte padding canonical.
+Human-readable prefixes contain 1–83 characters; Nostr's extended data payloads
+are not subject to Bitcoin address length limits. `Bech32PaddingTest` pins these
+rules with literal checksum-valid positive and negative vectors.
 
 ## Rewrite acceptance gate
 
