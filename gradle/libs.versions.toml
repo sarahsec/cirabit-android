@@ -22,7 +22,7 @@ navigation-compose = "2.10.2"
 accompanist-permissions = "0.37.3"
 
 # Cryptography
-bouncycastle = "1.84"
+bouncycastle = "1.86"
 tink-android = "1.23.0"
 
 # JSON
