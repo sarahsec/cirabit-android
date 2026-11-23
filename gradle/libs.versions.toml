@@ -29,7 +29,7 @@ wear-tooling-preview = "1.0.0"
 wear-ongoing = "1.1.0"
 
 # Cryptography
-bouncycastle = "1.86"
+bouncycastle = "1.87"
 tink-android = "1.23.0"
 
 # JSON
